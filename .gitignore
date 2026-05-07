@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.local
+dist/
+.netlify/
+*.log
+.DS_Store
+frontend/node_modules/
+netlify/functions/node_modules/
