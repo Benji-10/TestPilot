@@ -31,11 +31,9 @@ A full-stack web app for generating personalised exams from your study materials
 git clone <your-repo-url> testpilot
 cd testpilot
 
-# Install frontend deps
+# Install all deps (root installs function deps, frontend installs its own)
+npm install
 cd frontend && npm install && cd ..
-
-# Install function deps
-cd netlify/functions && npm install && cd ../..
 ```
 
 ### 2. Set up the database

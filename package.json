@@ -3,8 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build",
-    "start": "netlify dev"
+    "build": "cd frontend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@neondatabase/serverless": "^0.9.4",
+    "busboy": "^1.6.0",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^1.1.1",
+    "uuid": "^10.0.0"
   }
 }

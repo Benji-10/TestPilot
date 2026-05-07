@@ -1,17 +1,17 @@
 [build]
-  base = "frontend"
   command = "npm run build"
-  publish = "dist"
-  functions = "../netlify/functions"
+  publish = "frontend/dist"
+  functions = "netlify/functions"
 
 [dev]
-  command = "npm run dev"
+  command = "cd frontend && npm run dev"
   port = 8888
   targetPort = 5173
   framework = "#custom"
 
 [functions]
   node_bundler = "esbuild"
+  external_node_modules = ["pdf-parse", "mammoth"]
 
 # API routes
 [[redirects]]

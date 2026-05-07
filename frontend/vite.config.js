@@ -11,5 +11,9 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '/.netlify/functions')
       }
     }
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
   }
 })
