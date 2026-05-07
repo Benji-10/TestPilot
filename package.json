@@ -11,7 +11,6 @@
     "@neondatabase/serverless": "^0.9.4",
     "busboy": "^1.6.0",
     "jsonwebtoken": "^9.0.2",
-    "jwks-rsa": "^3.1.0",
     "mammoth": "^1.8.0",
     "pdf-parse": "^1.1.1",
     "uuid": "^10.0.0"
