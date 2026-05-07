@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import netlifyIdentity from 'netlify-identity-widget'
 import useStore from '../../lib/store.js'
 import { apiClient } from '../../lib/api.js'
 import { sessionColor, formatDate } from '../../lib/utils.js'
@@ -22,9 +21,7 @@ export default function Sidebar() {
   }, [renaming])
 
   useEffect(() => {
-    function handler(e) {
-      if (contextMenu) setContextMenu(null)
-    }
+    function handler() { if (contextMenu) setContextMenu(null) }
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [contextMenu])
@@ -79,6 +76,10 @@ export default function Sidebar() {
     setContextMenu({ x: e.clientX, y: e.clientY, id: sessionId })
   }
 
+  function handleSignOut() {
+    window.netlifyIdentity?.logout()
+  }
+
   const filtered = sessions.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase())
   )
@@ -109,17 +110,16 @@ export default function Sidebar() {
                 <path d="M5 14L10 6l5 8H5z" fill="white" fillOpacity="0.9" />
               </svg>
               <span style={{ fontSize: 13, fontFamily: 'Instrument Serif, serif', color: 'var(--ink-1)' }}>
-                Revision
+                TestPilot
               </span>
             </div>
             <button className="btn btn-ghost btn-icon" onClick={toggleSidebar} title="Collapse">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
               </svg>
             </button>
           </div>
 
-          {/* Search */}
           <div style={{ position: 'relative' }}>
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{
               position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)',
@@ -153,7 +153,7 @@ export default function Sidebar() {
 
           {filtered.length === 0 && (
             <div style={{ padding: '20px 8px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
-              {search ? 'No sessions found' : 'No sessions yet'}
+              {search ? 'No sessions found' : 'No sessions yet — click + to create one'}
             </div>
           )}
 
@@ -164,10 +164,7 @@ export default function Sidebar() {
               active={session.id === activeSessionId}
               renaming={renaming === session.id}
               renameRef={renaming === session.id ? renameRef : null}
-              onSelect={() => {
-                setActiveSession(session.id)
-                setActiveView('session')
-              }}
+              onSelect={() => { setActiveSession(session.id); setActiveView('session') }}
               onContextMenu={(e) => openContextMenu(e, session.id)}
               onRename={(name) => handleRename(session.id, name)}
               onRenameStart={() => setRenaming(session.id)}
@@ -179,7 +176,7 @@ export default function Sidebar() {
         <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
           <button
             className="btn btn-ghost"
-            style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 8px' }}
+            style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 8px', marginBottom: 4 }}
             onClick={() => setActiveView('analytics')}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -190,12 +187,11 @@ export default function Sidebar() {
             Analytics
           </button>
 
-          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px' }}>
             <div style={{
               width: 24, height: 24, borderRadius: '50%',
               background: 'var(--accent-dim)', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', fontSize: 10, color: '#c4bbff', fontWeight: 500,
-              flexShrink: 0
+              justifyContent: 'center', fontSize: 10, color: '#c4bbff', fontWeight: 500, flexShrink: 0
             }}>
               {user?.email?.[0]?.toUpperCase() || '?'}
             </div>
@@ -204,7 +200,7 @@ export default function Sidebar() {
                 {user?.email}
               </div>
             </div>
-            <button className="btn btn-ghost btn-icon" onClick={() => netlifyIdentity.logout()} title="Sign out" style={{ padding: 3 }}>
+            <button className="btn btn-ghost btn-icon" onClick={handleSignOut} title="Sign out" style={{ padding: 3 }}>
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M5 2H2a1 1 0 00-1 1v7a1 1 0 001 1h3M9 9.5l3-3m0 0l-3-3m3 3H5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
               </svg>
@@ -213,7 +209,6 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Context menu */}
       {contextMenu && (
         <div
           className="context-menu"
@@ -242,7 +237,6 @@ export default function Sidebar() {
 function SessionTile({ session, active, renaming, renameRef, onSelect, onContextMenu, onRename, onRenameStart }) {
   const [name, setName] = useState(session.name)
   const color = sessionColor(session.id)
-
   useEffect(() => setName(session.name), [session.name])
 
   return (
@@ -252,11 +246,7 @@ function SessionTile({ session, active, renaming, renameRef, onSelect, onContext
       onContextMenu={onContextMenu}
       onDoubleClick={onRenameStart}
     >
-      <div style={{
-        width: 8, height: 8, borderRadius: '50%',
-        background: color, flexShrink: 0
-      }} />
-
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
       {renaming ? (
         <input
           ref={renameRef}
@@ -268,17 +258,10 @@ function SessionTile({ session, active, renaming, renameRef, onSelect, onContext
             if (e.key === 'Escape') { setName(session.name); onRename(session.name) }
           }}
           onClick={e => e.stopPropagation()}
-          style={{
-            flex: 1, background: 'transparent', border: 'none',
-            color: 'var(--ink-1)', fontFamily: 'inherit', fontSize: 13,
-            outline: 'none', padding: 0
-          }}
+          style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--ink-1)', fontFamily: 'inherit', fontSize: 13, outline: 'none', padding: 0 }}
         />
       ) : (
-        <span style={{
-          flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap', fontSize: 13, color: active ? 'var(--ink-1)' : 'var(--ink-2)'
-        }}>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: active ? 'var(--ink-1)' : 'var(--ink-2)' }}>
           {session.name}
         </span>
       )}

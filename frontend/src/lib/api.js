@@ -1,12 +1,17 @@
-import netlifyIdentity from 'netlify-identity-widget'
-
 const BASE = '/api'
 
 async function getAuthHeaders() {
-  const user = netlifyIdentity.currentUser()
+  // Use the global netlifyIdentity injected by the CDN script in index.html
+  const identity = window.netlifyIdentity
+  const user = identity?.currentUser()
   if (!user) return {}
-  const token = await user.jwt()
-  return { Authorization: `Bearer ${token}` }
+  try {
+    const token = await user.jwt()
+    return { Authorization: `Bearer ${token}` }
+  } catch (e) {
+    console.error('Failed to get JWT:', e)
+    return {}
+  }
 }
 
 async function request(path, options = {}) {
@@ -50,7 +55,10 @@ export const apiClient = {
       headers: authHeaders,
       body: formData,
     })
-    if (!res.ok) throw new Error('Upload failed')
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Upload failed' }))
+      throw new Error(err.error || 'Upload failed')
+    }
     return res.json()
   },
 

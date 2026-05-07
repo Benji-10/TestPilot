@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import netlifyIdentity from 'netlify-identity-widget'
 import useStore from './lib/store.js'
 import { apiClient } from './lib/api.js'
 import Layout from './components/Layout.jsx'
 import AuthScreen from './pages/AuthScreen.jsx'
+
+// Use the global netlifyIdentity injected by the CDN script in index.html
+// Do NOT import from 'netlify-identity-widget' — that causes double-init conflict
+const netlifyIdentity = window.netlifyIdentity
 
 export default function App() {
   const { user, setUser } = useStore()
@@ -11,21 +14,17 @@ export default function App() {
   const [initError, setInitError] = useState(null)
 
   useEffect(() => {
-    // Fallback: if Identity doesn't fire within 5s, show auth screen anyway
-    const timeout = setTimeout(() => {
-      console.warn('Netlify Identity init timed out — is Identity enabled on your site?')
+    if (!netlifyIdentity) {
+      setInitError('netlify-identity-widget script failed to load. Check your internet connection.')
       setAuthReady(true)
-    }, 5000)
-
-    try {
-      netlifyIdentity.init({ logo: false })
-    } catch (e) {
-      console.error('Identity init error:', e)
-      setInitError(e.message)
-      setAuthReady(true)
-      clearTimeout(timeout)
       return
     }
+
+    const timeout = setTimeout(() => {
+      console.warn('Netlify Identity init timed out')
+      setInitError('Identity timed out. Make sure Netlify Identity is enabled: Site Settings → Identity → Enable Identity')
+      setAuthReady(true)
+    }, 8000)
 
     netlifyIdentity.on('init', (u) => {
       clearTimeout(timeout)
@@ -48,9 +47,13 @@ export default function App() {
     netlifyIdentity.on('error', (err) => {
       console.error('Netlify Identity error:', err)
       clearTimeout(timeout)
-      setInitError(typeof err === 'string' ? err : err?.message || 'Identity error')
+      setInitError(typeof err === 'string' ? err : (err?.message || JSON.stringify(err)))
       setAuthReady(true)
     })
+
+    // Trigger init — the CDN script exposes netlifyIdentity globally and
+    // init() tells it which site URL to use (auto-detected from window.location)
+    netlifyIdentity.init({ logo: false })
 
     return () => {
       clearTimeout(timeout)
@@ -84,25 +87,18 @@ export default function App() {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         height: '100vh', flexDirection: 'column', gap: 16, padding: 32
       }}>
-        <div style={{ fontSize: 24, marginBottom: 4 }}>⚠️</div>
-        <p style={{ color: 'var(--danger)', fontSize: 13, textAlign: 'center', maxWidth: 420, lineHeight: 1.7 }}>
-          <strong>Auth configuration error:</strong><br/>{initError}
-        </p>
-        <div style={{
-          background: 'var(--surface-2)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: '14px 18px', maxWidth: 420, fontSize: 12,
-          color: 'var(--ink-2)', lineHeight: 1.8
+        <div style={{ fontSize: 28 }}>⚠️</div>
+        <p style={{
+          color: 'var(--danger)', fontSize: 13, textAlign: 'center',
+          maxWidth: 460, lineHeight: 1.7
         }}>
-          <strong style={{ color: 'var(--ink-1)' }}>Fix:</strong> Go to your Netlify dashboard →
-          <strong> Site Settings → Identity → Enable Identity</strong>.
-          Then trigger a new deploy (or just re-save any env var to force one).
-        </div>
+          {initError}
+        </p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
 
   if (!user) return <AuthScreen />
-
   return <Layout />
 }

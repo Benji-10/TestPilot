@@ -1,6 +1,7 @@
-import netlifyIdentity from 'netlify-identity-widget'
-
 export default function AuthScreen() {
+  function openLogin() { window.netlifyIdentity?.open('login') }
+  function openSignup() { window.netlifyIdentity?.open('signup') }
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -24,20 +25,18 @@ export default function AuthScreen() {
         </p>
       </div>
 
-      <div style={{
-        display: 'flex', flexDirection: 'column', gap: 10, width: 280
-      }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 280 }}>
         <button
           className="btn btn-primary"
           style={{ justifyContent: 'center', padding: '10px 20px', fontSize: 13 }}
-          onClick={() => netlifyIdentity.open('login')}
+          onClick={openLogin}
         >
           Sign in
         </button>
         <button
           className="btn"
           style={{ justifyContent: 'center', padding: '10px 20px', fontSize: 13 }}
-          onClick={() => netlifyIdentity.open('signup')}
+          onClick={openSignup}
         >
           Create account
         </button>
