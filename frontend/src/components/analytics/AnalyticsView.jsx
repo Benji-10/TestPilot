@@ -105,7 +105,7 @@ function AnalyticsContent({ data }) {
             Accuracy by topic
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {topicData.sort((a, b) => (a.avg_pct || 0) - (b.avg_pct || 0)).map(topic => {
+            {[...topicData].sort((a, b) => (a.avg_pct || 0) - (b.avg_pct || 0)).map(topic => {
               const pct = Math.round(topic.avg_pct || 0)
               const grade = gradeLabel(pct)
               return (
