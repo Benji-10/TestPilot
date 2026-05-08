@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import useStore from '../../lib/store.js'
 import { apiClient } from '../../lib/api.js'
-import { debounce, percentage, gradeLabel } from '../../lib/utils.js'
+import { debounce } from '../../lib/utils.js'
 import QuestionCard from './QuestionCard.jsx'
 import TimerDisplay from './TimerDisplay.jsx'
 import OpenBookSidebar from './OpenBookSidebar.jsx'
@@ -10,13 +10,12 @@ import toast from 'react-hot-toast'
 export default function ExamView() {
   const {
     activeAttempt, setActiveAttempt, updateAnswer,
-    setActiveView, markingExam, setMarkingExam,
+    setActiveView, setMarkingExam, markingExam,
     files, addAttempt
   } = useStore()
 
   const [submitting, setSubmitting] = useState(false)
   const [confirmSubmit, setConfirmSubmit] = useState(false)
-  const [timerExpired, setTimerExpired] = useState(false)
 
   const exam = activeAttempt?.exam
   const questions = exam?.questions_json || []
@@ -24,17 +23,12 @@ export default function ExamView() {
   const settings = exam?.settings_json || {}
   const sessionFiles = files[exam?.session_id] || []
 
-  const answeredCount = Object.keys(answers).filter(k => answers[k]?.trim()).length
+  const answeredCount = Object.values(answers).filter(v => v?.trim()).length
 
-  // Autosave
   const autosave = useCallback(
     debounce(async (attemptId, answerData) => {
       try {
-        await apiClient.saveAttempt(attemptId, {
-          answers_json: answerData,
-          timer_state_json: null,
-          status: 'in_progress'
-        })
+        await apiClient.saveAttempt(attemptId, { answers_json: answerData })
       } catch {}
     }, 2000),
     []
@@ -56,35 +50,22 @@ export default function ExamView() {
     setSubmitting(true)
 
     try {
-      // Submit the attempt
-      const submitted = await apiClient.submitAttempt(activeAttempt.id, {
-        answers_json: answers,
-        auto_submitted: auto
-      })
+      await apiClient.submitAttempt(activeAttempt.id, { answers_json: answers })
 
-      // Trigger marking
       setMarkingExam(true)
-      toast.loading('AI is marking your exam...', { id: 'marking' })
+      const toastId = toast.loading('AI is marking your exam…')
 
       const marked = await apiClient.markAttempt(activeAttempt.id)
-      toast.success('Marking complete!', { id: 'marking' })
+      toast.success('Marking complete!', { id: toastId })
 
-      // Update attempt with feedback
       setActiveAttempt({ ...activeAttempt, ...marked, exam })
       addAttempt(exam.id, marked)
       setActiveView('review')
     } catch (e) {
-      toast.error(e.message || 'Failed to submit exam')
+      toast.error(e.message || 'Failed to submit')
     } finally {
       setSubmitting(false)
       setMarkingExam(false)
-    }
-  }
-
-  function handleTimerExpire() {
-    setTimerExpired(true)
-    if (settings.autoSubmit) {
-      submitExam(true)
     }
   }
 
@@ -98,16 +79,16 @@ export default function ExamView() {
 
   return (
     <div style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
-      {/* Main exam area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
         {/* Header */}
         <div style={{
-          padding: '14px 24px', borderBottom: '1px solid var(--border)',
+          padding: '12px 24px', borderBottom: '1px solid var(--border)',
           display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0,
           background: 'var(--surface-1)'
         }}>
-          <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 14, fontFamily: 'Instrument Serif, serif', color: 'var(--ink-1)', marginBottom: 2 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 style={{ fontSize: 14, fontFamily: 'Instrument Serif, serif', color: 'var(--ink-1)', marginBottom: 1 }}>
               {exam.title}
             </h1>
             <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--ink-3)' }}>
@@ -120,46 +101,29 @@ export default function ExamView() {
           </div>
 
           {/* Progress ring */}
-          <div style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
-            <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
-              <circle cx="22" cy="22" r="18" fill="none" stroke="var(--surface-3)" strokeWidth="3"/>
-              <circle
-                cx="22" cy="22" r="18" fill="none" stroke="var(--accent)"
-                strokeWidth="3"
-                strokeDasharray={`${2 * Math.PI * 18}`}
-                strokeDashoffset={`${2 * Math.PI * 18 * (1 - answeredCount / Math.max(questions.length, 1))}`}
-                strokeLinecap="round"
-                style={{ transition: 'stroke-dashoffset 0.4s ease' }}
-              />
-            </svg>
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              fontSize: 10, color: 'var(--ink-2)'
-            }}>
-              {Math.round(answeredCount / Math.max(questions.length, 1) * 100)}%
-            </div>
-          </div>
+          <svg width="36" height="36" viewBox="0 0 36 36" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+            <circle cx="18" cy="18" r="14" fill="none" stroke="var(--surface-3)" strokeWidth="3"/>
+            <circle cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" strokeWidth="3"
+              strokeDasharray={`${2 * Math.PI * 14}`}
+              strokeDashoffset={`${2 * Math.PI * 14 * (1 - answeredCount / Math.max(questions.length, 1))}`}
+              strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+            />
+          </svg>
 
-          {/* Timer */}
           {settings.timerEnabled && (
-            <div style={{ minWidth: 160 }}>
-              <TimerDisplay
-                durationMinutes={settings.timerDuration}
-                onExpire={handleTimerExpire}
-                autoSubmit={settings.autoSubmit}
-              />
-            </div>
+            <TimerDisplay
+              durationMinutes={settings.timerDuration}
+              onExpire={() => settings.autoSubmit && submitExam(true)}
+              autoSubmit={settings.autoSubmit}
+            />
           )}
 
           <button
             className="btn btn-ghost"
+            style={{ color: 'var(--ink-3)', flexShrink: 0 }}
             onClick={() => {
-              if (confirm('Exit exam? Progress will be saved.')) {
-                setActiveView('session')
-              }
+              if (confirm('Exit? Your progress is saved.')) setActiveView('session')
             }}
-            style={{ color: 'var(--ink-3)' }}
           >
             ← Exit
           </button>
@@ -178,7 +142,7 @@ export default function ExamView() {
             />
           ))}
 
-          {/* Submit area */}
+          {/* Submit */}
           <div style={{
             background: 'var(--surface-1)', border: '1px solid var(--border)',
             borderRadius: 'var(--radius-lg)', padding: 16, marginTop: 8
@@ -196,14 +160,12 @@ export default function ExamView() {
             {confirmSubmit ? (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: 'var(--ink-2)', flex: 1 }}>
-                  Submit for marking? You cannot change answers after.
+                  Submit for AI marking? You can't change answers after.
                 </span>
-                <button className="btn btn-danger" onClick={() => submitExam(false)}>
-                  {submitting ? 'Submitting...' : 'Confirm submit'}
+                <button className="btn btn-primary" onClick={() => submitExam(false)} disabled={submitting || markingExam}>
+                  {submitting || markingExam ? 'Working…' : 'Confirm'}
                 </button>
-                <button className="btn btn-ghost" onClick={() => setConfirmSubmit(false)}>
-                  Cancel
-                </button>
+                <button className="btn btn-ghost" onClick={() => setConfirmSubmit(false)}>Cancel</button>
               </div>
             ) : (
               <button
@@ -212,7 +174,7 @@ export default function ExamView() {
                 disabled={submitting || markingExam}
                 style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
               >
-                {submitting ? 'Submitting...' : markingExam ? 'Marking...' : 'Submit Exam'}
+                {markingExam ? 'Marking…' : submitting ? 'Submitting…' : 'Submit Exam'}
               </button>
             )}
           </div>
@@ -221,7 +183,6 @@ export default function ExamView() {
         </div>
       </div>
 
-      {/* Open book sidebar */}
       {settings.openBook && <OpenBookSidebar files={sessionFiles} />}
     </div>
   )

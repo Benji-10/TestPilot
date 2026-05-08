@@ -1,7 +1,7 @@
-const BASE = '/api'
+// Call Netlify Functions directly — no /api proxy, no redirect rules needed
+const BASE = '/.netlify/functions'
 
 async function getAuthHeaders() {
-  // Use the global netlifyIdentity injected by the CDN script in index.html
   const identity = window.netlifyIdentity
   const user = identity?.currentUser()
   if (!user) return {}
@@ -16,7 +16,8 @@ async function getAuthHeaders() {
 
 async function request(path, options = {}) {
   const authHeaders = await getAuthHeaders()
-  const res = await fetch(`${BASE}${path}`, {
+  const url = `${BASE}${path}`
+  const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders,
@@ -26,7 +27,7 @@ async function request(path, options = {}) {
   })
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }))
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
     throw new Error(err.error || `HTTP ${res.status}`)
   }
 
@@ -34,17 +35,23 @@ async function request(path, options = {}) {
 }
 
 export const apiClient = {
-  // Sessions
+  // Auth
+  syncUser: (data) => request('/auth-sync', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Sessions — all go to /sessions function, path suffix routed internally
   getSessions: () => request('/sessions'),
   createSession: (data) => request('/sessions', { method: 'POST', body: JSON.stringify(data) }),
-  updateSession: (id, data) => request(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteSession: (id) => request(`/sessions/${id}`, { method: 'DELETE' }),
-  duplicateSession: (id) => request(`/sessions/${id}/duplicate`, { method: 'POST' }),
+  updateSession: (id, data) => request(`/sessions?id=${id}&action=update`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSession: (id) => request(`/sessions?id=${id}&action=delete`, { method: 'DELETE' }),
+  duplicateSession: (id) => request(`/sessions?id=${id}&action=duplicate`, { method: 'POST' }),
 
-  // Files
-  getFiles: (sessionId) => request(`/sessions/${sessionId}/files`),
-  deleteFile: (sessionId, fileId) => request(`/sessions/${sessionId}/files/${fileId}`, { method: 'DELETE' }),
+  // Sub-resources
+  getFiles: (sessionId) => request(`/sessions?id=${sessionId}&action=files`),
+  deleteFile: (sessionId, fileId) => request(`/files?sessionId=${sessionId}&fileId=${fileId}`, { method: 'DELETE' }),
+  getExams: (sessionId) => request(`/sessions?id=${sessionId}&action=exams`),
+  getSessionAnalytics: (sessionId) => request(`/sessions?id=${sessionId}&action=analytics`),
 
+  // File upload
   uploadFile: async (sessionId, file) => {
     const authHeaders = await getAuthHeaders()
     const formData = new FormData()
@@ -63,21 +70,15 @@ export const apiClient = {
   },
 
   // Exams
-  getExams: (sessionId) => request(`/sessions/${sessionId}/exams`),
-  generateExam: (data) => request('/exams/generate', { method: 'POST', body: JSON.stringify(data) }),
-  getExam: (id) => request(`/exams/${id}`),
+  generateExam: (data) => request('/exams-generate', { method: 'POST', body: JSON.stringify(data) }),
 
   // Attempts
-  getAttempts: (examId) => request(`/exams/${examId}/attempts`),
-  createAttempt: (examId) => request(`/exams/${examId}/attempts`, { method: 'POST' }),
-  saveAttempt: (attemptId, data) => request(`/attempts/${attemptId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  submitAttempt: (attemptId, data) => request(`/attempts/${attemptId}/submit`, { method: 'POST', body: JSON.stringify(data) }),
-  markAttempt: (attemptId) => request(`/attempts/${attemptId}/mark`, { method: 'POST' }),
+  getAttempts: (examId) => request(`/attempts?examId=${examId}`),
+  createAttempt: (examId) => request(`/attempts?examId=${examId}`, { method: 'POST' }),
+  saveAttempt: (attemptId, data) => request(`/attempts?id=${attemptId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  submitAttempt: (attemptId, data) => request(`/attempts?id=${attemptId}&action=submit`, { method: 'POST', body: JSON.stringify(data) }),
+  markAttempt: (attemptId) => request(`/attempts?id=${attemptId}&action=mark`, { method: 'POST' }),
 
   // Analytics
-  getSessionAnalytics: (sessionId) => request(`/sessions/${sessionId}/analytics`),
   getGlobalAnalytics: () => request('/analytics'),
-
-  // Auth
-  syncUser: (data) => request('/auth/sync', { method: 'POST', body: JSON.stringify(data) }),
 }

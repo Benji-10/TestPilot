@@ -26,9 +26,7 @@ export default function SessionView({ session }) {
   const fileInputRef = useRef(null)
 
   const saveInstructions = debounce(async (text) => {
-    try {
-      await apiClient.updateSession(session.id, { instructions: text })
-    } catch {}
+    try { await apiClient.updateSession(session.id, { name: session.name }) } catch {}
   }, 1000)
 
   useEffect(() => {
@@ -40,30 +38,25 @@ export default function SessionView({ session }) {
     try {
       const data = await apiClient.getFiles(session.id)
       setFiles(session.id, data)
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) { console.error('loadFiles:', e.message) }
   }
 
   async function loadExams() {
     try {
       const data = await apiClient.getExams(session.id)
       setExams(session.id, data)
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) { console.error('loadExams:', e.message) }
   }
 
-  async function handleFileUpload(files) {
+  async function handleFileUpload(fileList) {
     setUploading(true)
-    const fileArr = Array.from(files)
-    for (const file of fileArr) {
+    for (const file of Array.from(fileList)) {
       try {
         const uploaded = await apiClient.uploadFile(session.id, file)
         addFile(session.id, uploaded)
         toast.success(`Uploaded ${file.name}`)
       } catch (e) {
-        toast.error(`Failed to upload ${file.name}`)
+        toast.error(`Failed to upload ${file.name}: ${e.message}`)
       }
     }
     setUploading(false)
@@ -73,14 +66,13 @@ export default function SessionView({ session }) {
     try {
       await apiClient.deleteFile(session.id, fileId)
       removeFile(session.id, fileId)
-    } catch (e) {
-      toast.error('Failed to delete file')
-    }
+      toast.success('File removed')
+    } catch (e) { toast.error('Failed to delete file') }
   }
 
   async function generateExam() {
     if (sessionFiles.length === 0) {
-      toast.error('Upload at least one file to generate an exam')
+      toast.error('Upload at least one file first')
       return
     }
     setGeneratingExam(true)
@@ -92,7 +84,6 @@ export default function SessionView({ session }) {
         settings,
       })
       addExam(session.id, exam)
-      // Start an attempt
       const attempt = await apiClient.createAttempt(exam.id)
       setActiveAttempt({ ...attempt, exam })
       setActiveView('exam')
@@ -109,9 +100,7 @@ export default function SessionView({ session }) {
       const attempt = await apiClient.createAttempt(exam.id)
       setActiveAttempt({ ...attempt, exam })
       setActiveView('exam')
-    } catch (e) {
-      toast.error('Failed to open exam')
-    }
+    } catch (e) { toast.error('Failed to open exam') }
   }
 
   function handleDrop(e) {
@@ -133,19 +122,16 @@ export default function SessionView({ session }) {
       </div>
 
       <div className="scroll-y" style={{ flex: 1, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+
         {/* File Upload */}
         <section>
-          <SectionHeader title="Study Materials" hint="Upload PDFs, docs, or images" />
+          <SectionHeader title="Study Materials" hint="Upload PDFs, Word docs, or text files" />
           <div
             style={{
               border: `1.5px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
-              borderRadius: 'var(--radius-lg)',
-              padding: 20,
-              textAlign: 'center',
-              cursor: 'pointer',
-              background: dragOver ? 'var(--accent-glow)' : 'transparent',
-              transition: 'all 0.15s ease',
-              marginBottom: 10
+              borderRadius: 'var(--radius-lg)', padding: 20, textAlign: 'center',
+              cursor: 'pointer', background: dragOver ? 'var(--accent-glow)' : 'transparent',
+              transition: 'all 0.15s ease', marginBottom: 10
             }}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -153,23 +139,19 @@ export default function SessionView({ session }) {
             onDrop={handleDrop}
           >
             <input
-              ref={fileInputRef}
-              type="file"
-              multiple
+              ref={fileInputRef} type="file" multiple
               accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
               style={{ display: 'none' }}
               onChange={e => handleFileUpload(e.target.files)}
             />
-            <div style={{ color: 'var(--ink-3)', marginBottom: 6 }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ margin: '0 auto 8px' }}>
-                <path d="M12 16V4M7 9l5-5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                <path d="M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
-              </svg>
-            </div>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ margin: '0 auto 8px', display: 'block', color: 'var(--ink-3)' }}>
+              <path d="M12 16V4M7 9l5-5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+            </svg>
             <p style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 3 }}>
-              {uploading ? 'Uploading...' : 'Drop files or click to upload'}
+              {uploading ? 'Uploading…' : 'Drop files or click to upload'}
             </p>
-            <p style={{ fontSize: 11, color: 'var(--ink-3)' }}>PDF, Word, Images · Max 20MB each</p>
+            <p style={{ fontSize: 11, color: 'var(--ink-3)' }}>PDF, Word, Text · Max 20MB each</p>
           </div>
 
           {sessionFiles.length > 0 && (
@@ -187,12 +169,9 @@ export default function SessionView({ session }) {
           <textarea
             className="input"
             value={sessionInstructions}
-            onChange={e => {
-              setInstructions(session.id, e.target.value)
-              saveInstructions(e.target.value)
-            }}
-            placeholder="e.g. Focus on integration techniques from Chapters 3–5. Avoid calculator questions. Include at least one proof-based question..."
-            style={{ minHeight: 100, fontSize: 12, lineHeight: 1.7 }}
+            onChange={e => setInstructions(session.id, e.target.value)}
+            placeholder="e.g. Focus on integration by parts. Include at least one proof. No calculators."
+            style={{ minHeight: 90, fontSize: 12, lineHeight: 1.7 }}
           />
         </section>
 
@@ -202,7 +181,7 @@ export default function SessionView({ session }) {
           onChange={(patch) => setExamSettings(session.id, patch)}
         />
 
-        {/* Generate Button */}
+        {/* Generate */}
         <div>
           <button
             className="btn btn-primary"
@@ -212,23 +191,23 @@ export default function SessionView({ session }) {
           >
             {generatingExam ? (
               <>
-                <div style={{
-                  width: 13, height: 13, border: '1.5px solid rgba(255,255,255,0.3)',
-                  borderTopColor: 'white', borderRadius: '50%',
-                  animation: 'spin 0.8s linear infinite'
-                }} />
-                Generating exam...
+                <Spinner />
+                Generating exam…
               </>
             ) : (
               <>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 1l1.8 3.6L13 5.5l-3 2.9.7 4.1L7 10.5 3.3 12.5l.7-4.1L1 5.5l4.2-.9L7 1z" fill="currentColor"/>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <path d="M7 1l1.8 3.6L13 5.5l-3 2.9.7 4.1L7 10.5 3.3 12.5l.7-4.1L1 5.5l4.2-.9L7 1z"/>
                 </svg>
                 Generate Exam
               </>
             )}
           </button>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          {sessionFiles.length === 0 && (
+            <p style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', marginTop: 6 }}>
+              Upload at least one file to generate an exam
+            </p>
+          )}
         </div>
 
         {/* Previous Exams */}
@@ -242,6 +221,8 @@ export default function SessionView({ session }) {
             </div>
           </section>
         )}
+
+        <div style={{ height: 32 }} />
       </div>
     </div>
   )
@@ -270,7 +251,11 @@ function FileRow({ file, onDelete }) {
         </div>
         <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>{formatFileSize(file.size)}</div>
       </div>
-      <button className="btn btn-ghost btn-icon" onClick={onDelete} style={{ padding: 4, color: 'var(--ink-3)' }}>
+      <button
+        className="btn btn-ghost btn-icon"
+        onClick={onDelete}
+        style={{ padding: 4, color: 'var(--ink-3)', flexShrink: 0 }}
+      >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
@@ -280,16 +265,18 @@ function FileRow({ file, onDelete }) {
 }
 
 function ExamRow({ exam, onOpen }) {
+  const topics = exam.metadata_json?.topics || []
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '10px 12px', background: 'var(--surface-1)',
-      borderRadius: 'var(--radius)', border: '1px solid var(--border)',
-      cursor: 'pointer', transition: 'all 0.1s ease'
-    }}
-    onClick={onOpen}
-    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-active)'}
-    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 12px', background: 'var(--surface-1)',
+        borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+        cursor: 'pointer', transition: 'border-color 0.1s ease'
+      }}
+      onClick={onOpen}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-active)'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink-1)', marginBottom: 2 }}>{exam.title}</div>
@@ -297,15 +284,26 @@ function ExamRow({ exam, onOpen }) {
           {exam.questions_json?.length || 0} questions · {exam.total_marks} marks · {formatDate(exam.created_at)}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        {exam.metadata_json?.topics?.slice(0, 2).map(t => (
-          <span key={t} className="tag tag-accent">{t}</span>
-        ))}
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ color: 'var(--ink-3)' }}>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+        {topics.slice(0, 2).map(t => <span key={t} className="tag tag-accent">{t}</span>)}
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ color: 'var(--ink-3)', marginLeft: 4 }}>
           <path d="M4 2.5l5 4-5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </div>
     </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <>
+      <div style={{
+        width: 13, height: 13, border: '1.5px solid rgba(255,255,255,0.3)',
+        borderTopColor: 'white', borderRadius: '50%',
+        animation: 'spin 0.8s linear infinite', flexShrink: 0
+      }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </>
   )
 }
 
