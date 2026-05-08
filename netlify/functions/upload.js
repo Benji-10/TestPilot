@@ -39,20 +39,31 @@ function parseMultipart(event) {
   })
 }
 
+// Strip characters that Postgres UTF-8 rejects: null bytes and other
+// non-printable control chars that sneak in from PDF extraction
+function sanitizeText(str) {
+  if (!str) return ''
+  return str
+    .replace(/\x00/g, '')           // null bytes — main culprit
+    .replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ') // other control chars
+    .replace(/\uFFFD/g, '')          // replacement chars from bad decoding
+    .trim()
+}
+
 async function extractText(buffer, mimetype, filename) {
   try {
-    if (mimetype === 'application/pdf' || filename.endsWith('.pdf')) {
+    if (mimetype === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
       const pdfParse = require('pdf-parse')
       const data = await pdfParse(buffer)
-      return data.text || ''
+      return sanitizeText(data.text || '')
     }
-    if (mimetype.includes('word') || filename.endsWith('.docx')) {
+    if (mimetype.includes('word') || filename.toLowerCase().endsWith('.docx')) {
       const mammoth = require('mammoth')
       const result = await mammoth.extractRawText({ buffer })
-      return result.value || ''
+      return sanitizeText(result.value || '')
     }
-    if (mimetype.startsWith('text/') || filename.endsWith('.txt')) {
-      return buffer.toString('utf-8')
+    if (mimetype.startsWith('text/') || filename.toLowerCase().endsWith('.txt')) {
+      return sanitizeText(buffer.toString('utf-8'))
     }
   } catch (e) {
     console.error('Text extraction failed:', e.message)
@@ -62,17 +73,15 @@ async function extractText(buffer, mimetype, filename) {
 
 function extractFormulas(text) {
   const formulas = []
+  const seen = new Set()
   const latexPattern = /\$\$([^$]+)\$\$|\$([^$]+)\$/g
   let match
   while ((match = latexPattern.exec(text)) !== null) {
-    const expr = (match[1] || match[2] || '').trim()
-    if (expr.length > 2 && expr.length < 200) {
+    const expr = sanitizeText(match[1] || match[2] || '')
+    if (expr.length > 2 && expr.length < 200 && !seen.has(expr)) {
+      seen.add(expr)
       formulas.push({ latex: expr, name: '', topic: '' })
     }
-  }
-  const namedPattern = /([A-Z][a-zA-Z\s']{3,40}(?:theorem|law|formula|equation|identity))\s*[:\-–]\s*([^\n]{2,80})/gi
-  while ((match = namedPattern.exec(text)) !== null) {
-    formulas.push({ name: match[1].trim(), latex: match[2].trim(), topic: '' })
   }
   return formulas.slice(0, 100)
 }
@@ -99,15 +108,19 @@ exports.handler = async (event) => {
     const extractedText = await extractText(file.buffer, file.mimetype, file.filename)
     const formulas = extractFormulas(extractedText)
 
-    // Store file reference — in production replace storage_url with your object store URL
-    const storageUrl = `uploaded:${sessionId}:${file.filename}`
+    // Truncate to 50k chars and sanitize once more before insert
+    const safeText = sanitizeText(extractedText).slice(0, 50000)
+    const storageUrl = `uploaded:${sessionId}:${Date.now()}:${file.filename}`
 
     const [dbFile] = await sql`
       INSERT INTO files (session_id, user_id, name, size, mime_type, storage_url, extracted_text, formulas_json)
       VALUES (
-        ${sessionId}, ${userId}, ${file.filename}, ${file.buffer.length},
-        ${file.mimetype}, ${storageUrl},
-        ${extractedText.slice(0, 50000)},
+        ${sessionId}, ${userId},
+        ${sanitizeText(file.filename)},
+        ${file.buffer.length},
+        ${file.mimetype},
+        ${storageUrl},
+        ${safeText},
         ${JSON.stringify(formulas)}
       )
       RETURNING *
