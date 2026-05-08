@@ -7,7 +7,6 @@
     "dev": "cd frontend && npm run dev"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
     "@neondatabase/serverless": "^0.9.4",
     "busboy": "^1.6.0",
     "jsonwebtoken": "^9.0.2",

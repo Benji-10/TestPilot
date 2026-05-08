@@ -1,6 +1,6 @@
 const { requireAuth, respond, cors } = require('./_auth')
 const { getDb } = require('./_db')
-const { GoogleGenerativeAI } = require('@google/generative-ai')
+const { callGemini } = require('./_gemini')
 
 async function getDbUser(sql, netlifyId, email) {
   await sql`
@@ -11,7 +11,7 @@ async function getDbUser(sql, netlifyId, email) {
   return u.id
 }
 
-const EXAM_GENERATION_PROMPT = (context, instructions, settings) => `
+const EXAM_PROMPT = (context, instructions, settings) => `
 You are an expert exam setter. Generate a high-quality exam based on the provided study materials.
 
 ## Study Material:
@@ -66,12 +66,10 @@ exports.handler = async (event) => {
     const { sessionId, fileIds = [], instructions, settings = {}, fromAttemptId } = body
 
     if (!sessionId) return respond(400, { error: 'sessionId required' })
-    if (!process.env.GEMINI_API_KEY) return respond(500, { error: 'GEMINI_API_KEY not configured' })
 
     const [session] = await sql`SELECT * FROM sessions WHERE id = ${sessionId} AND user_id = ${userId}`
     if (!session) return respond(403, { error: 'Session not found' })
 
-    // Get file content
     const files = fileIds.length > 0
       ? await sql`SELECT name, extracted_text FROM files WHERE id = ANY(${fileIds}::uuid[]) AND session_id = ${sessionId}`
       : await sql`SELECT name, extracted_text FROM files WHERE session_id = ${sessionId} AND user_id = ${userId}`
@@ -87,25 +85,7 @@ exports.handler = async (event) => {
     }
 
     const context = fileTexts.join('\n\n---\n\n') || 'No material uploaded — use topic focus to generate questions.'
-    const prompt = EXAM_GENERATION_PROMPT(context + weakTopicContext, instructions, settings)
-
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash-latest',
-      generationConfig: { temperature: 0.7, maxOutputTokens: 8192, responseMimeType: 'application/json' }
-    })
-
-    const result = await model.generateContent(prompt)
-    const responseText = result.response.text()
-
-    let examData
-    try {
-      examData = JSON.parse(responseText)
-    } catch {
-      const match = responseText.match(/\{[\s\S]*\}/)
-      if (!match) throw new Error('Failed to parse Gemini response as JSON')
-      examData = JSON.parse(match[0])
-    }
+    const examData = await callGemini(EXAM_PROMPT(context + weakTopicContext, instructions, settings), { temperature: 0.7 })
 
     if (!examData.questions?.length) throw new Error('No questions in generated exam')
 
@@ -137,6 +117,6 @@ exports.handler = async (event) => {
     return respond(201, exam)
   } catch (e) {
     console.error('exam generation error:', e.message)
-    return respond(500, { error: e.message || 'Exam generation failed' })
+    return respond(500, { error: e.message })
   }
 }

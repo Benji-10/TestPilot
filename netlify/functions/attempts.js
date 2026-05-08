@@ -1,9 +1,12 @@
 const { requireAuth, respond, cors } = require('./_auth')
 const { getDb } = require('./_db')
-const { GoogleGenerativeAI } = require('@google/generative-ai')
+const { callGemini } = require('./_gemini')
 
 async function getDbUser(sql, netlifyId, email) {
-  await sql`INSERT INTO users (netlify_id, email) VALUES (${netlifyId}, ${email}) ON CONFLICT (netlify_id) DO UPDATE SET email = EXCLUDED.email`
+  await sql`
+    INSERT INTO users (netlify_id, email) VALUES (${netlifyId}, ${email})
+    ON CONFLICT (netlify_id) DO UPDATE SET email = EXCLUDED.email
+  `
   const [u] = await sql`SELECT id FROM users WHERE netlify_id = ${netlifyId}`
   return u.id
 }
@@ -15,14 +18,14 @@ Allow alternative solutions: ${settings.allowAlternatives ? 'yes' : 'no'}
 
 ${questions.map((q, i) => {
   const scheme = markingSchemes.find(s => s.id === q.id) || {}
-  return `### Q${i+1} (${q.marks} marks)
+  return `### Q${i + 1} (${q.marks} marks)
 Question: ${q.question}
 Marking scheme: ${scheme.marking_scheme || 'Award marks for correct working'}
 Model answer: ${scheme.model_answer || ''}
 Student answer: ${answers[q.id] || '(blank)'}`
 }).join('\n\n')}
 
-Respond ONLY with valid JSON:
+Respond ONLY with valid JSON, no markdown fences:
 {
   "total_score": number,
   "max_score": number,
@@ -34,15 +37,16 @@ Respond ONLY with valid JSON:
     "id": "q1",
     "scored_marks": number,
     "is_correct": boolean,
+    "marking_scheme": "string",
     "feedback": {
       "overall": "string",
       "steps": [{"description":"string","awarded":boolean,"marks":number,"comment":"string","expected":"string"}],
       "misconceptions": ["string"],
       "alternatives": ["string"]
-    },
-    "marking_scheme": "string"
+    }
   }]
-}`
+}
+`
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return cors()
@@ -56,7 +60,7 @@ exports.handler = async (event) => {
     const qs = event.queryStringParameters || {}
     const { examId, id: attemptId, action } = qs
 
-    // POST /attempts?examId=X — create attempt
+    // POST ?examId=X — create attempt
     if (method === 'POST' && examId && !action) {
       const [exam] = await sql`
         SELECT e.* FROM exams e
@@ -72,7 +76,7 @@ exports.handler = async (event) => {
       return respond(201, attempt)
     }
 
-    // GET /attempts?examId=X — list
+    // GET ?examId=X — list attempts
     if (method === 'GET' && examId) {
       const attempts = await sql`
         SELECT id, total_score, max_score, percentage, status, started_at, submitted_at
@@ -82,7 +86,7 @@ exports.handler = async (event) => {
       return respond(200, attempts)
     }
 
-    // PATCH /attempts?id=X — save progress
+    // PATCH ?id=X — autosave answers
     if (method === 'PATCH' && attemptId && !action) {
       const body = JSON.parse(event.body || '{}')
       await sql`
@@ -94,7 +98,7 @@ exports.handler = async (event) => {
       return respond(200, { ok: true })
     }
 
-    // POST /attempts?id=X&action=submit
+    // POST ?id=X&action=submit
     if (method === 'POST' && attemptId && action === 'submit') {
       const body = JSON.parse(event.body || '{}')
       const [attempt] = await sql`
@@ -108,10 +112,8 @@ exports.handler = async (event) => {
       return respond(200, attempt)
     }
 
-    // POST /attempts?id=X&action=mark
+    // POST ?id=X&action=mark
     if (method === 'POST' && attemptId && action === 'mark') {
-      if (!process.env.GEMINI_API_KEY) return respond(500, { error: 'GEMINI_API_KEY not configured' })
-
       const [attempt] = await sql`
         SELECT a.*, e.questions_json, e.marking_scheme_json, e.settings_json, e.total_marks, e.session_id
         FROM attempts a JOIN exams e ON e.id = a.exam_id
@@ -124,20 +126,10 @@ exports.handler = async (event) => {
       const answers = attempt.answers_json || {}
       const settings = attempt.settings_json || {}
 
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash-latest',
-        generationConfig: { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: 'application/json' }
-      })
-
-      const result = await model.generateContent(MARKING_PROMPT(questions, answers, markingSchemes, settings))
-      let markingData
-      try {
-        markingData = JSON.parse(result.response.text())
-      } catch {
-        const match = result.response.text().match(/\{[\s\S]*\}/)
-        markingData = JSON.parse(match[0])
-      }
+      const markingData = await callGemini(
+        MARKING_PROMPT(questions, answers, markingSchemes, settings),
+        { temperature: 0.2 }
+      )
 
       const totalScore = markingData.total_score || 0
       const maxScore = markingData.max_score || attempt.total_marks || 0
@@ -145,7 +137,14 @@ exports.handler = async (event) => {
 
       const enrichedQuestions = questions.map(q => {
         const qf = markingData.questions?.find(mq => mq.id === q.id) || {}
-        return { ...q, studentAnswer: answers[q.id] || '', scoredMarks: qf.scored_marks ?? 0, isCorrect: qf.is_correct ?? false, markingScheme: qf.marking_scheme || '', feedback: qf.feedback || {} }
+        return {
+          ...q,
+          studentAnswer: answers[q.id] || '',
+          scoredMarks: qf.scored_marks ?? 0,
+          isCorrect: qf.is_correct ?? false,
+          markingScheme: qf.marking_scheme || '',
+          feedback: qf.feedback || {},
+        }
       })
 
       const feedbackJson = { ...markingData, questions: enrichedQuestions }
@@ -153,18 +152,23 @@ exports.handler = async (event) => {
       const [updated] = await sql`
         UPDATE attempts SET
           feedback_json = ${JSON.stringify(feedbackJson)}::jsonb,
-          total_score = ${totalScore}, max_score = ${maxScore}, percentage = ${pct},
-          status = 'marked', updated_at = NOW()
+          total_score = ${totalScore},
+          max_score = ${maxScore},
+          percentage = ${pct},
+          status = 'marked',
+          updated_at = NOW()
         WHERE id = ${attemptId}
         RETURNING *
       `
 
+      // Record analytics per question topic
       for (const q of questions) {
         const qf = markingData.questions?.find(mq => mq.id === q.id)
-        for (const topic of (q.topics || ['general'])) {
+        for (const topic of (q.topics?.length ? q.topics : ['general'])) {
           await sql`
             INSERT INTO analytics (user_id, session_id, attempt_id, topic, score, max_score, difficulty)
-            VALUES (${userId}, ${attempt.session_id}, ${attemptId}, ${topic}, ${qf?.scored_marks ?? 0}, ${q.marks || 0}, ${q.difficulty || 'medium'})
+            VALUES (${userId}, ${attempt.session_id}, ${attemptId},
+                    ${topic}, ${qf?.scored_marks ?? 0}, ${q.marks || 0}, ${q.difficulty || 'medium'})
           `
         }
       }
