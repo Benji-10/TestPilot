@@ -183,7 +183,7 @@ export default function ExamView() {
         </div>
       </div>
 
-      {settings.openBook && <OpenBookSidebar files={sessionFiles} />}
+      {settings.openBook && <OpenBookSidebar files={sessionFiles} exam={exam} />}
     </div>
   )
 }

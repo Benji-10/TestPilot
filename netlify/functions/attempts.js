@@ -3,48 +3,68 @@ const { getDb } = require('./_db')
 const { callGemini } = require('./_gemini')
 
 async function getDbUser(sql, netlifyId, email) {
-  await sql`
-    INSERT INTO users (netlify_id, email) VALUES (${netlifyId}, ${email})
-    ON CONFLICT (netlify_id) DO UPDATE SET email = EXCLUDED.email
-  `
+  await sql`INSERT INTO users (netlify_id, email) VALUES (${netlifyId}, ${email}) ON CONFLICT (netlify_id) DO UPDATE SET email = EXCLUDED.email`
   const [u] = await sql`SELECT id FROM users WHERE netlify_id = ${netlifyId}`
   return u.id
 }
 
 const MARKING_PROMPT = (questions, answers, markingSchemes, settings) => `
-You are an expert examiner marking a student's exam.
+You are an expert mathematics examiner. Mark the student's answers carefully and helpfully.
+
 Marking strictness: ${settings.markingStrictness || 'standard'}
-Allow alternative solutions: ${settings.allowAlternatives ? 'yes' : 'no'}
+Allow alternative methods: ${settings.allowAlternatives !== false ? 'yes — if the student uses a valid alternative method, award full marks and note it' : 'no'}
+
+For EACH question:
+- Work through the marking scheme step by step
+- Try to match the student's method to the marking scheme where possible — if they took a different valid route, follow their logic and award marks accordingly
+- If the student is wrong, show the CORRECT answer in full (worked solution)
+- If the question asks for a counterexample and the student got it wrong, provide a correct counterexample
+- If the student got partial credit, explain exactly what they did right and what was missing
+- All mathematics in feedback MUST use proper LaTeX: $inline$ or $$display$$
+- "Expected" fields must be proper LaTeX expressions, not plain text mixed with LaTeX
+- Step descriptions must be plain English, not LaTeX-encoded text
 
 ${questions.map((q, i) => {
   const scheme = markingSchemes.find(s => s.id === q.id) || {}
-  return `### Q${i + 1} (${q.marks} marks)
+  return `
+=== Question ${i + 1} (${q.marks} marks total) ===
 Question: ${q.question}
 Marking scheme: ${scheme.marking_scheme || 'Award marks for correct working'}
 Model answer: ${scheme.model_answer || ''}
-Student answer: ${answers[q.id] || '(blank)'}`
-}).join('\n\n')}
+Student answer: ${answers[q.id] || '(no answer provided)'}
+`}).join('\n')}
 
-Respond ONLY with valid JSON, no markdown fences:
+Respond with ONLY valid JSON, no markdown fences:
 {
   "total_score": number,
   "max_score": number,
   "method_marks_total": number,
-  "weak_topics": ["topic"],
+  "weak_topics": ["topic — use vocabulary from the source material"],
   "strong_topics": ["topic"],
-  "overall_comment": "string",
-  "questions": [{
-    "id": "q1",
-    "scored_marks": number,
-    "is_correct": boolean,
-    "marking_scheme": "string",
-    "feedback": {
-      "overall": "string",
-      "steps": [{"description":"string","awarded":boolean,"marks":number,"comment":"string","expected":"string"}],
-      "misconceptions": ["string"],
-      "alternatives": ["string"]
+  "overall_comment": "string — 2-3 sentences, specific and constructive",
+  "questions": [
+    {
+      "id": "q1",
+      "scored_marks": number,
+      "is_correct": boolean,
+      "marking_scheme": "string — the full marking scheme now revealed to the student",
+      "correct_answer": "string — complete worked correct answer in LaTeX, always provided whether student was right or wrong",
+      "feedback": {
+        "overall": "string — 2-3 sentences specific to this answer. If wrong, explain the error clearly and what was needed.",
+        "steps": [
+          {
+            "description": "plain English description of what this step requires",
+            "awarded": boolean,
+            "marks": number,
+            "comment": "string — if not awarded: what was missing or wrong AND what the correct approach is. If awarded: brief confirmation.",
+            "correct_working": "LaTeX string — the correct mathematical working for this step, always shown"
+          }
+        ],
+        "misconceptions": ["string — specific misconception identified, plain English"],
+        "alternatives": ["LaTeX string — valid alternative approach if applicable"]
+      }
     }
-  }]
+  ]
 }
 `
 
@@ -63,8 +83,7 @@ exports.handler = async (event) => {
     // POST ?examId=X — create attempt
     if (method === 'POST' && examId && !action) {
       const [exam] = await sql`
-        SELECT e.* FROM exams e
-        JOIN sessions s ON s.id = e.session_id
+        SELECT e.* FROM exams e JOIN sessions s ON s.id = e.session_id
         WHERE e.id = ${examId} AND s.user_id = ${userId}
       `
       if (!exam) return respond(404, { error: 'Exam not found' })
@@ -76,17 +95,17 @@ exports.handler = async (event) => {
       return respond(201, attempt)
     }
 
-    // GET ?examId=X — list attempts
+    // GET ?examId=X — list attempts for an exam
     if (method === 'GET' && examId) {
       const attempts = await sql`
-        SELECT id, total_score, max_score, percentage, status, started_at, submitted_at
+        SELECT id, total_score, max_score, percentage, status, started_at, submitted_at, created_at
         FROM attempts WHERE exam_id = ${examId} AND user_id = ${userId}
         ORDER BY created_at DESC
       `
       return respond(200, attempts)
     }
 
-    // PATCH ?id=X — autosave answers
+    // PATCH ?id=X — autosave
     if (method === 'PATCH' && attemptId && !action) {
       const body = JSON.parse(event.body || '{}')
       await sql`
@@ -128,7 +147,7 @@ exports.handler = async (event) => {
 
       const markingData = await callGemini(
         MARKING_PROMPT(questions, answers, markingSchemes, settings),
-        { temperature: 0.2 }
+        { temperature: 0.2, maxTokens: 12000 }
       )
 
       const totalScore = markingData.total_score || 0
@@ -143,6 +162,7 @@ exports.handler = async (event) => {
           scoredMarks: qf.scored_marks ?? 0,
           isCorrect: qf.is_correct ?? false,
           markingScheme: qf.marking_scheme || '',
+          correctAnswer: qf.correct_answer || '',
           feedback: qf.feedback || {},
         }
       })
@@ -152,28 +172,28 @@ exports.handler = async (event) => {
       const [updated] = await sql`
         UPDATE attempts SET
           feedback_json = ${JSON.stringify(feedbackJson)}::jsonb,
-          total_score = ${totalScore},
-          max_score = ${maxScore},
-          percentage = ${pct},
-          status = 'marked',
-          updated_at = NOW()
-        WHERE id = ${attemptId}
-        RETURNING *
+          total_score = ${totalScore}, max_score = ${maxScore}, percentage = ${pct},
+          status = 'marked', updated_at = NOW()
+        WHERE id = ${attemptId} RETURNING *
       `
 
-      // Record analytics per question topic
       for (const q of questions) {
         const qf = markingData.questions?.find(mq => mq.id === q.id)
         for (const topic of (q.topics?.length ? q.topics : ['general'])) {
           await sql`
             INSERT INTO analytics (user_id, session_id, attempt_id, topic, score, max_score, difficulty)
-            VALUES (${userId}, ${attempt.session_id}, ${attemptId},
-                    ${topic}, ${qf?.scored_marks ?? 0}, ${q.marks || 0}, ${q.difficulty || 'medium'})
+            VALUES (${userId}, ${attempt.session_id}, ${attemptId}, ${topic}, ${qf?.scored_marks ?? 0}, ${q.marks || 0}, ${q.difficulty || 'medium'})
           `
         }
       }
 
       return respond(200, { ...updated, feedback_json: feedbackJson })
+    }
+
+    // DELETE ?id=X&action=delete — delete an attempt
+    if (method === 'DELETE' && attemptId) {
+      await sql`DELETE FROM attempts WHERE id = ${attemptId} AND user_id = ${userId}`
+      return respond(200, { ok: true })
     }
 
     return respond(404, { error: `No handler for ${method} action=${action}` })

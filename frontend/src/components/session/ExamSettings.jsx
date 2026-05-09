@@ -20,26 +20,24 @@ export default function ExamSettings({ settings, onChange }) {
       >
         <h2 style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>Exam Settings</h2>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
-          style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}>
+          style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s', color: 'var(--ink-3)' }}>
           <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
       </button>
 
       {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }} className="animate-fade-in">
-          {/* Number of questions */}
-          <Setting label="Number of questions" value={settings.numQuestions}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <input
-                type="range" min={1} max={20} step={1}
-                value={settings.numQuestions}
-                onChange={e => set('numQuestions', +e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <span style={{ fontSize: 13, color: 'var(--ink-1)', minWidth: 20, textAlign: 'right' }}>
-                {settings.numQuestions}
-              </span>
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* Number of questions — plain number input */}
+          <Setting label="Number of questions">
+            <input
+              type="number"
+              className="input"
+              value={settings.numQuestions}
+              min={1} max={30}
+              onChange={e => set('numQuestions', Math.max(1, Math.min(30, +e.target.value || 1)))}
+              style={{ width: 80, fontSize: 13, padding: '5px 8px' }}
+            />
           </Setting>
 
           {/* Exam length */}
@@ -49,7 +47,7 @@ export default function ExamSettings({ settings, onChange }) {
                 className="input"
                 value={settings.examLength?.type}
                 onChange={e => set('examLength', { ...settings.examLength, type: e.target.value })}
-                style={{ width: 90, fontSize: 12, padding: '5px 8px' }}
+                style={{ width: 100, fontSize: 12, padding: '5px 8px' }}
               >
                 <option value="marks">Marks</option>
                 <option value="time">Time (min)</option>
@@ -59,7 +57,6 @@ export default function ExamSettings({ settings, onChange }) {
                 className="input"
                 value={settings.examLength?.value}
                 min={1}
-                max={settings.examLength?.type === 'marks' ? 200 : 300}
                 onChange={e => set('examLength', { ...settings.examLength, value: +e.target.value })}
                 style={{ width: 70, fontSize: 12, padding: '5px 8px' }}
               />
@@ -68,22 +65,16 @@ export default function ExamSettings({ settings, onChange }) {
 
           {/* Difficulty */}
           <Setting label="Difficulty">
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {['easy', 'medium', 'hard', 'mixed'].map(d => (
-                <button
-                  key={d}
-                  onClick={() => set('difficulty', d)}
-                  style={{
-                    padding: '4px 10px', borderRadius: 100, border: '1px solid',
-                    fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-                    background: settings.difficulty === d ? 'var(--accent)' : 'transparent',
-                    borderColor: settings.difficulty === d ? 'var(--accent)' : 'var(--border)',
-                    color: settings.difficulty === d ? 'white' : 'var(--ink-2)',
-                    transition: 'all 0.1s ease'
-                  }}
-                >
-                  {d}
-                </button>
+                <button key={d} onClick={() => set('difficulty', d)} style={{
+                  padding: '4px 12px', borderRadius: 100, border: '1px solid',
+                  fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                  background: settings.difficulty === d ? 'var(--accent)' : 'transparent',
+                  borderColor: settings.difficulty === d ? 'var(--accent)' : 'var(--border)',
+                  color: settings.difficulty === d ? 'white' : 'var(--ink-2)',
+                  transition: 'all 0.1s ease'
+                }}>{d}</button>
               ))}
             </div>
           </Setting>
@@ -94,7 +85,7 @@ export default function ExamSettings({ settings, onChange }) {
               className="input"
               value={settings.topicFocus}
               onChange={e => set('topicFocus', e.target.value)}
-              placeholder="e.g. Integration by parts, Taylor series..."
+              placeholder="e.g. supremum, bounded functions…"
               style={{ fontSize: 12, padding: '6px 10px' }}
             />
           </Setting>
@@ -103,69 +94,38 @@ export default function ExamSettings({ settings, onChange }) {
           <Setting label="Marking strictness">
             <div style={{ display: 'flex', gap: 6 }}>
               {['lenient', 'standard', 'strict'].map(s => (
-                <button
-                  key={s}
-                  onClick={() => set('markingStrictness', s)}
-                  style={{
-                    padding: '4px 10px', borderRadius: 100, border: '1px solid',
-                    fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-                    background: settings.markingStrictness === s ? 'var(--surface-3)' : 'transparent',
-                    borderColor: settings.markingStrictness === s ? 'var(--border-active)' : 'var(--border)',
-                    color: settings.markingStrictness === s ? 'var(--ink-1)' : 'var(--ink-3)',
-                    transition: 'all 0.1s ease'
-                  }}
-                >
-                  {s}
-                </button>
+                <button key={s} onClick={() => set('markingStrictness', s)} style={{
+                  padding: '4px 12px', borderRadius: 100, border: '1px solid',
+                  fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                  background: settings.markingStrictness === s ? 'var(--surface-3)' : 'transparent',
+                  borderColor: settings.markingStrictness === s ? 'var(--border-active)' : 'var(--border)',
+                  color: settings.markingStrictness === s ? 'var(--ink-1)' : 'var(--ink-3)',
+                  transition: 'all 0.1s ease'
+                }}>{s}</button>
               ))}
             </div>
           </Setting>
 
           {/* Toggles */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <ToggleRow
-              label="Allow alternative solutions"
-              hint="Accept equivalent valid methods"
-              checked={settings.allowAlternatives}
-              onChange={v => set('allowAlternatives', v)}
-            />
-            <ToggleRow
-              label="Open book"
-              hint="Show extracted formulas in sidebar"
-              checked={settings.openBook}
-              onChange={v => set('openBook', v)}
-            />
-            <ToggleRow
-              label="Enable timer"
-              checked={settings.timerEnabled}
-              onChange={v => set('timerEnabled', v)}
-            />
+            <ToggleRow label="Allow alternative solutions" hint="Accept equivalent valid methods" checked={settings.allowAlternatives} onChange={v => set('allowAlternatives', v)} />
+            <ToggleRow label="Open book" hint="Show key formulas/theorems from your notes" checked={settings.openBook} onChange={v => set('openBook', v)} />
+            <ToggleRow label="Enable timer" checked={settings.timerEnabled} onChange={v => set('timerEnabled', v)} />
           </div>
 
-          {/* Timer options */}
           {settings.timerEnabled && (
-            <div style={{
-              background: 'var(--surface-2)', borderRadius: 'var(--radius)',
-              padding: '12px', display: 'flex', flexDirection: 'column', gap: 10
-            }} className="animate-fade-in">
+            <div style={{ background: 'var(--surface-2)', borderRadius: 'var(--radius)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <Setting label="Duration (minutes)">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <input
-                    type="range" min={5} max={180} step={5}
-                    value={settings.timerDuration}
-                    onChange={e => set('timerDuration', +e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <span style={{ fontSize: 13, color: 'var(--ink-1)', minWidth: 32, textAlign: 'right' }}>
-                    {settings.timerDuration}m
-                  </span>
-                </div>
+                <input
+                  type="number"
+                  className="input"
+                  value={settings.timerDuration}
+                  min={5} max={300}
+                  onChange={e => set('timerDuration', +e.target.value)}
+                  style={{ width: 80, fontSize: 12, padding: '5px 8px' }}
+                />
               </Setting>
-              <ToggleRow
-                label="Auto-submit on expiry"
-                checked={settings.autoSubmit}
-                onChange={v => set('autoSubmit', v)}
-              />
+              <ToggleRow label="Auto-submit on expiry" checked={settings.autoSubmit} onChange={v => set('autoSubmit', v)} />
             </div>
           )}
         </div>
@@ -193,7 +153,7 @@ function ToggleRow({ label, hint, checked, onChange }) {
         <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>{label}</span>
         {hint && <span style={{ fontSize: 10, color: 'var(--ink-3)', display: 'block' }}>{hint}</span>}
       </div>
-      <label className="toggle">
+      <label className="toggle" style={{ flexShrink: 0 }}>
         <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
         <div className="toggle-track" />
         <div className="toggle-thumb" />

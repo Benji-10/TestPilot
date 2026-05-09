@@ -9,25 +9,17 @@ import AnalyticsView from './analytics/AnalyticsView.jsx'
 import EmptyState from './ui/EmptyState.jsx'
 
 export default function Layout() {
-  const {
-    sessions, setSessions, activeSessionId, setActiveSession,
-    activeView, sidebarOpen
-  } = useStore()
+  const { sessions, setSessions, activeSessionId, setActiveSession, activeView, sidebarOpen } = useStore()
 
-  useEffect(() => {
-    loadSessions()
-  }, [])
+  useEffect(() => { loadSessions() }, [])
 
   async function loadSessions() {
     try {
       const data = await apiClient.getSessions()
       setSessions(data)
-      if (data.length && !activeSessionId) {
-        setActiveSession(data[0].id)
-      }
-    } catch (e) {
-      console.error('Failed to load sessions:', e)
-    }
+      const { activeSessionId: cur } = useStore.getState()
+      if (data.length && !cur) setActiveSession(data[0].id)
+    } catch (e) { console.error('Failed to load sessions:', e) }
   }
 
   const activeSession = sessions.find(s => s.id === activeSessionId)
@@ -43,9 +35,7 @@ export default function Layout() {
   return (
     <div className="app-layout">
       <Sidebar />
-      <main className="main-panel">
-        {renderMain()}
-      </main>
+      <main className="main-panel">{renderMain()}</main>
     </div>
   )
 }

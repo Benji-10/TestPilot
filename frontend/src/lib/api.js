@@ -1,4 +1,3 @@
-// Call Netlify Functions directly — no /api proxy, no redirect rules needed
 const BASE = '/.netlify/functions'
 
 async function getAuthHeaders() {
@@ -16,21 +15,14 @@ async function getAuthHeaders() {
 
 async function request(path, options = {}) {
   const authHeaders = await getAuthHeaders()
-  const url = `${BASE}${path}`
-  const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders,
-      ...options.headers,
-    },
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders, ...options.headers },
     ...options,
   })
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
     throw new Error(err.error || `HTTP ${res.status}`)
   }
-
   return res.json()
 }
 
@@ -38,30 +30,25 @@ export const apiClient = {
   // Auth
   syncUser: (data) => request('/auth-sync', { method: 'POST', body: JSON.stringify(data) }),
 
-  // Sessions — all go to /sessions function, path suffix routed internally
+  // Sessions
   getSessions: () => request('/sessions'),
   createSession: (data) => request('/sessions', { method: 'POST', body: JSON.stringify(data) }),
   updateSession: (id, data) => request(`/sessions?id=${id}&action=update`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteSession: (id) => request(`/sessions?id=${id}&action=delete`, { method: 'DELETE' }),
+  deleteSession: (id) => request(`/sessions?id=${id}`, { method: 'DELETE' }),
   duplicateSession: (id) => request(`/sessions?id=${id}&action=duplicate`, { method: 'POST' }),
 
-  // Sub-resources
+  // Files
   getFiles: (sessionId) => request(`/sessions?id=${sessionId}&action=files`),
   deleteFile: (sessionId, fileId) => request(`/files?sessionId=${sessionId}&fileId=${fileId}`, { method: 'DELETE' }),
   getExams: (sessionId) => request(`/sessions?id=${sessionId}&action=exams`),
   getSessionAnalytics: (sessionId) => request(`/sessions?id=${sessionId}&action=analytics`),
 
-  // File upload
   uploadFile: async (sessionId, file) => {
     const authHeaders = await getAuthHeaders()
     const formData = new FormData()
     formData.append('file', file)
     formData.append('sessionId', sessionId)
-    const res = await fetch(`${BASE}/upload`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: formData,
-    })
+    const res = await fetch(`${BASE}/upload`, { method: 'POST', headers: authHeaders, body: formData })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Upload failed' }))
       throw new Error(err.error || 'Upload failed')
@@ -71,6 +58,7 @@ export const apiClient = {
 
   // Exams
   generateExam: (data) => request('/exams-generate', { method: 'POST', body: JSON.stringify(data) }),
+  deleteExam: (examId) => request(`/sessions?examId=${examId}`, { method: 'DELETE' }),
 
   // Attempts
   getAttempts: (examId) => request(`/attempts?examId=${examId}`),
@@ -78,6 +66,7 @@ export const apiClient = {
   saveAttempt: (attemptId, data) => request(`/attempts?id=${attemptId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitAttempt: (attemptId, data) => request(`/attempts?id=${attemptId}&action=submit`, { method: 'POST', body: JSON.stringify(data) }),
   markAttempt: (attemptId) => request(`/attempts?id=${attemptId}&action=mark`, { method: 'POST' }),
+  deleteAttempt: (attemptId) => request(`/attempts?id=${attemptId}`, { method: 'DELETE' }),
 
   // Analytics
   getGlobalAnalytics: () => request('/analytics'),
