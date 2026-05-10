@@ -33,6 +33,8 @@ ${instructions || 'None.'}
 6. For yes/no or true/false questions, always require justification in the marking scheme and include a worked example or counterexample in the model answer.
 7. Extract open-book reference material: anything in the source marked as a definition, theorem, lemma, proposition, or corollary — extract verbatim with its name.
 
+IMPORTANT: You are generating JSON. All LaTeX must use double backslashes (\\frac, \\sqrt, \\sup etc.) because single backslashes break JSON. Do NOT use single backslashes in any string value.
+
 Respond with ONLY valid JSON, no markdown:
 {
   "title": "string — concise descriptive title e.g. 'Supremum and Infimum' not 'Practice Exam 1'",

@@ -34,6 +34,8 @@ Model answer: ${scheme.model_answer || ''}
 Student answer: ${answers[q.id] || '(no answer provided)'}
 `}).join('\n')}
 
+IMPORTANT: You are generating JSON. All LaTeX must use double backslashes (\\frac, \\sqrt, \\leq etc.) because single backslashes break JSON.
+
 Respond with ONLY valid JSON, no markdown fences:
 {
   "total_score": number,

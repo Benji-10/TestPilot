@@ -3,6 +3,7 @@ import useStore from '../../lib/store.js'
 import { apiClient } from '../../lib/api.js'
 import { formatFileSize, getFileIcon, debounce, formatDate, gradeLabel, percentage } from '../../lib/utils.js'
 import ExamSettings from './ExamSettings.jsx'
+import Spinner from '../ui/Spinner.jsx'
 import toast from 'react-hot-toast'
 
 export default function SessionView({ session }) {
@@ -345,9 +346,6 @@ function FileRow({ file, onDelete }) {
   )
 }
 
-function Spinner() {
-  return <div style={{ width: 13, height: 13, border: '1.5px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginRight: 6 }} />
-}
 
 function defaultSettings() {
   return {

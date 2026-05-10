@@ -1,22 +1,24 @@
 import { useState, useMemo } from 'react'
-import katex from 'katex'
+import { renderLatex, renderMath } from '../../lib/latex.js'
 
-function renderKatex(expr, display = false) {
-  if (!expr) return ''
-  try {
-    return katex.renderToString(String(expr), { displayMode: display, throwOnError: false, errorColor: 'var(--danger)' })
-  } catch { return String(expr) }
+const LatexBlock = ({ children, display }) => (
+  <div dangerouslySetInnerHTML={{ __html: display
+    ? renderMath(String(children || ''), true)
+    : renderLatex(String(children || ''))
+  }} style={{ lineHeight: 1.9, overflowX: 'auto' }} />
+)
+
+const TYPE_COLOR = {
+  definition: '#60a5fa', theorem: '#c4bbff', lemma: '#4ade80',
+  proposition: '#fbbf24', corollary: '#f97316', formula: 'var(--ink-3)',
+  corollary: '#f97316',
 }
 
 export default function OpenBookSidebar({ files, exam }) {
   const [search, setSearch] = useState('')
 
-  // Prefer exam-level open book items extracted during generation
-  const examItems = useMemo(() => {
-    return exam?.metadata_json?.open_book_items || []
-  }, [exam])
+  const examItems = useMemo(() => exam?.metadata_json?.open_book_items || [], [exam])
 
-  // Fall back to file-level formula extraction
   const fileItems = useMemo(() => {
     if (examItems.length > 0) return []
     const result = []
@@ -30,27 +32,30 @@ export default function OpenBookSidebar({ files, exam }) {
 
   const allItems = examItems.length > 0 ? examItems : fileItems
 
-  const filtered = allItems.filter(item => {
-    if (!search) return true
+  const filtered = useMemo(() => {
+    if (!search.trim()) return allItems
     const s = search.toLowerCase()
-    return (
+    return allItems.filter(item =>
       item.name?.toLowerCase().includes(s) ||
       item.latex?.toLowerCase().includes(s) ||
       item.type?.toLowerCase().includes(s)
     )
-  })
-
-  const typeColor = { definition: '#60a5fa', theorem: '#c4bbff', lemma: '#4ade80', proposition: '#fbbf24', corollary: '#f97316', formula: 'var(--ink-3)' }
+  }, [allItems, search])
 
   return (
-    <div style={{ width: 300, minWidth: 300, background: 'var(--surface-1)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ fontSize: 11, color: 'var(--ink-2)', fontWeight: 500, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{
+      width: 300, minWidth: 300, background: 'var(--surface-1)',
+      borderLeft: '1px solid var(--border)', display: 'flex',
+      flexDirection: 'column', overflow: 'hidden'
+    }}>
+      {/* Header */}
+      <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-            <path d="M1 2.5h5v9H1V2.5zM7 2.5h5v9H7V2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+            <path d="M1 2.5h5v9H1V2.5zM7 2.5h5v9H7V2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" style={{ color: 'var(--ink-2)' }}/>
           </svg>
-          Open Book
-          <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-3)' }}>{allItems.length} items</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-2)', fontWeight: 500 }}>Open Book</span>
+          <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-3)' }}>{allItems.length} item{allItems.length !== 1 ? 's' : ''}</span>
         </div>
         <input
           className="input"
@@ -61,35 +66,38 @@ export default function OpenBookSidebar({ files, exam }) {
         />
       </div>
 
+      {/* Items */}
       <div className="scroll-y" style={{ flex: 1, padding: 8 }}>
         {filtered.length === 0 && (
-          <div style={{ padding: 16, textAlign: 'center', color: 'var(--ink-3)', fontSize: 11, lineHeight: 1.7 }}>
+          <div style={{ padding: '20px 8px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 11, lineHeight: 1.8 }}>
             {allItems.length === 0
-              ? 'No reference material extracted.\nTry uploading a PDF with clearly marked definitions and theorems.'
-              : 'No matches found'
-            }
+              ? 'No reference material found.\nUpload a PDF with clearly marked definitions or theorems.'
+              : 'No matches for "' + search + '"'}
           </div>
         )}
-
         {filtered.map((item, i) => (
           <div key={i} style={{
-            marginBottom: 10, background: 'var(--surface-2)',
-            borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '8px 10px'
+            marginBottom: 8, background: 'var(--surface-2)',
+            borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '9px 11px'
           }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 5 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 6 }}>
               {item.type && (
-                <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.06em', color: typeColor[item.type] || 'var(--ink-3)', fontWeight: 600 }}>
+                <span style={{
+                  fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.07em',
+                  color: TYPE_COLOR[item.type] || 'var(--ink-3)', fontWeight: 600, flexShrink: 0
+                }}>
                   {item.type}
                 </span>
               )}
               {item.name && (
-                <span style={{ fontSize: 11, color: 'var(--ink-1)', fontWeight: 500 }}>{item.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--ink-1)', fontWeight: 500, lineHeight: 1.4 }}>
+                  {item.name}
+                </span>
               )}
             </div>
-            <div
-              dangerouslySetInnerHTML={{ __html: renderKatex(item.latex, item.latex?.length > 40) }}
-              style={{ overflowX: 'auto', fontSize: '0.9em', lineHeight: 1.8 }}
-            />
+            {item.latex && (
+              <LatexBlock display={item.latex.length > 50}>{item.latex}</LatexBlock>
+            )}
           </div>
         ))}
       </div>

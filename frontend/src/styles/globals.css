@@ -554,3 +554,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
   cursor: pointer;
 }
 .chart-bar:hover { background: var(--accent); }
+
+/* Spinner */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+.spinner-accent {
+  border-color: var(--border);
+  border-top-color: var(--accent);
+}

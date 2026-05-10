@@ -5,6 +5,7 @@ import { debounce } from '../../lib/utils.js'
 import QuestionCard from './QuestionCard.jsx'
 import TimerDisplay from './TimerDisplay.jsx'
 import OpenBookSidebar from './OpenBookSidebar.jsx'
+import Spinner from '../ui/Spinner.jsx'
 import toast from 'react-hot-toast'
 
 export default function ExamView() {
