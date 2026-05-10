@@ -9,21 +9,16 @@ async function getDbUser(sql, netlifyId, email) {
 }
 
 function recalculateScores(markingData, questions) {
-  // Recalculate per-question score from step marks (don't trust AI's scored_marks)
   const recalculated = (markingData.questions || []).map(qf => {
     const steps = qf.feedback?.steps || []
     const fromSteps = steps.reduce((sum, s) => sum + (s.awarded ? (s.marks || 0) : 0), 0)
-    // Use step sum if it differs from AI's claim; cap at question max marks
     const question = questions.find(q => q.id === qf.id)
     const maxMarks = question?.marks || 0
     const scored = Math.min(fromSteps > 0 ? fromSteps : (qf.scored_marks || 0), maxMarks)
     return { ...qf, scored_marks: scored }
   })
-
-  // Recalculate totals from individual questions
   const totalScore = recalculated.reduce((sum, qf) => sum + (qf.scored_marks || 0), 0)
   const maxScore = questions.reduce((sum, q) => sum + (q.marks || 0), 0)
-
   return { ...markingData, questions: recalculated, total_score: totalScore, max_score: maxScore }
 }
 
@@ -35,27 +30,27 @@ Allow alternative methods: ${settings.allowAlternatives !== false ? 'yes — awa
 
 LaTeX formatting rules — STRICT:
 - ALL mathematics must use $inline$ or $$display$$ delimiters
-- Prose fields (overall, comment, description) must be plain English, NO bare \\commands outside delimiters
-- correct_working example: "Since $x \\leq M$ for all $x \\in S$, we have $-x \\geq -M$, so $-M$ is a lower bound for $-S$."
-- NEVER output bare LaTeX like \\text{Show} without $ delimiters
+- Prose fields must be plain English sentences — no bare \\commands outside delimiters
+- correct_working example: "Since $x \\leq M$ for all $x \\in S$, we have $-x \\geq -M$"
+- misconceptions, alternatives, step descriptions: plain English with $math$ where needed
 
 Critical marking rules:
-- Mark ONLY what is in the question. If the question does not specify "non-empty", do not assume it.
-- Read the question EXACTLY as written. Do not add conditions that aren't there.
-- If a student provides a valid counterexample, award the marks even if their broader reasoning has errors.
-- For true/false questions, the student's conclusion must match the actual mathematical truth, not assumptions about what the question "meant".
-- If the student's method differs from the marking scheme but is mathematically valid, follow their method and award marks accordingly.
+- Mark ONLY what is in the question as written. Do not add conditions not stated.
+- Read the question EXACTLY. If it says "finite set" it means finite set — not "non-empty finite set".
+- If a student provides a valid counterexample or proof, award the marks even if other parts are wrong.
+- For true/false, the student's conclusion must match mathematical truth — not your assumptions about the question.
+- If the student's method is valid but different from the scheme, follow their method and award marks.
 
 ${questions.map((q, i) => {
   const scheme = markingSchemes.find(s => s.id === q.id) || {}
-  return `=== Q${i+1} (${q.marks} marks total) ===
+  return `=== Q${i+1} (${q.marks} marks) ===
 Question: ${q.question}
 Marking scheme: ${scheme.marking_scheme || 'Award marks for correct working'}
 Model answer: ${scheme.model_answer || ''}
 Student answer: ${answers[q.id] || '(no answer)'}`
 }).join('\n\n')}
 
-Respond with ONLY valid JSON, no markdown. IMPORTANT: double-escape all backslashes (\\\\frac not \\frac):
+Respond with ONLY valid JSON, no markdown. Double-escape all backslashes (\\\\frac not \\frac):
 {
   "total_score": number,
   "max_score": number,
@@ -68,51 +63,59 @@ Respond with ONLY valid JSON, no markdown. IMPORTANT: double-escape all backslas
     "scored_marks": number,
     "is_correct": boolean,
     "marking_scheme": "string",
-    "correct_answer": "full worked correct answer in LaTeX with $delimiters$",
+    "correct_answer": "full worked answer with $LaTeX$ delimiters",
     "feedback": {
-      "overall": "plain English, 2-3 sentences",
+      "overall": "plain English 2-3 sentences with $math$ where needed",
       "steps": [{
-        "description": "plain English — what this step requires",
+        "description": "plain English with $math$ where needed",
         "awarded": boolean,
         "marks": number,
-        "comment": "plain English — what was right/wrong and what was needed",
-        "correct_working": "LaTeX with $delimiters$ showing the correct working for this step"
+        "comment": "plain English with $math$ where needed",
+        "correct_working": "working with $LaTeX$ delimiters"
       }],
-      "misconceptions": ["plain English"],
-      "alternatives": ["LaTeX with $delimiters$"]
+      "misconceptions": ["plain English with $math$ where needed"],
+      "alternatives": ["description with $LaTeX$ delimiters"]
     }
   }]
 }`
 
-const APPEAL_PROMPT = (question, studentAnswer, originalFeedback, appealReason, markingScheme) => `
-You are a senior examiner reviewing an appeal against a marking decision.
+// IMPORTANT: original_answer is the VERBATIM text the student submitted at exam time.
+// It cannot be changed. The appeal is only about whether the MARKING of that answer was correct.
+const APPEAL_PROMPT = (question, originalAnswer, currentFeedback, appealReason, markingScheme) => `
+You are a senior examiner reviewing an appeal. You must be RIGOROUS — only uphold if the original marking was genuinely wrong.
 
-The student is appealing a marking decision. Review it fairly but rigorously.
-Only uphold the appeal if the student's mathematical argument is correct.
-Do NOT be a pushover — if the original marking was correct, say so clearly and explain why.
-If the original marking was wrong (e.g. misread the question, missed a valid method), correct it.
+CRITICAL: The student's original answer is fixed and cannot change. The appeal is ONLY about whether the marking of that exact answer was correct.
+If the student claims they wrote something that is not in their original answer, REJECT the appeal.
+If the student argues the question wording was different from what it says, check carefully.
 
-Original question: ${question}
+Question (exactly as set): ${question}
 Marking scheme: ${markingScheme}
-Student's answer: ${studentAnswer}
-Original marks awarded: ${originalFeedback.scored_marks} / ${originalFeedback.feedback?.steps?.reduce((s,t) => s + (t.marks||0), 0) || '?'}
-Original feedback: ${originalFeedback.feedback?.overall || ''}
+Student's original answer (verbatim, cannot change): ${originalAnswer || '(blank)'}
+Current marks: ${currentFeedback.scored_marks ?? 0} / ${currentFeedback.feedback?.steps?.reduce((s,t) => s + (t.marks||0), 0) || '?'}
+Current feedback given to student: ${currentFeedback.feedback?.overall || ''}
+Current step breakdown: ${JSON.stringify(currentFeedback.feedback?.steps || [])}
 
-Student's appeal reason: ${appealReason}
+Student's appeal argument: ${appealReason}
 
-LaTeX rules: use $inline$ and $$display$$ delimiters. Prose in plain English.
+Be rigorous. Ask yourself:
+1. Is the student's ORIGINAL answer actually correct or partially correct for the marks claimed?
+2. Did the marker misread the question or overlook valid working IN THE ORIGINAL ANSWER?
+3. Is the student trying to claim credit for something NOT in their original answer? → REJECT.
+4. Is the student correct that the question wording does not include a condition the marker assumed? → Check carefully.
+
+LaTeX rules: $inline$ and $$display$$ delimiters. Prose in plain English.
 
 Respond with ONLY valid JSON:
 {
   "appeal_upheld": boolean,
   "new_scored_marks": number,
-  "examiner_response": "string — clear explanation of decision, 2-4 sentences",
+  "examiner_response": "2-4 sentences — clear explanation referencing both the original answer and the appeal argument",
   "updated_steps": [{
-    "description": "string",
+    "description": "plain English with $math$",
     "awarded": boolean,
     "marks": number,
-    "comment": "string",
-    "correct_working": "string"
+    "comment": "plain English with $math$",
+    "correct_working": "with $LaTeX$ delimiters"
   }]
 }`
 
@@ -143,21 +146,22 @@ exports.handler = async (event) => {
       return respond(201, attempt)
     }
 
-    // GET ?examId=X — list attempts for exam
+    // GET ?examId=X — list attempts
     if (method === 'GET' && examId) {
       const attempts = await sql`
-        SELECT id, total_score, max_score, percentage, status, answers_json,
-               feedback_json, started_at, submitted_at, created_at
+        SELECT id, total_score, max_score, percentage, status,
+               answers_json, feedback_json, started_at, submitted_at, created_at
         FROM attempts WHERE exam_id = ${examId} AND user_id = ${userId}
         ORDER BY created_at DESC
       `
       return respond(200, attempts)
     }
 
-    // GET ?id=X — get single attempt with full data
+    // GET ?id=X — get single attempt with full exam data
     if (method === 'GET' && attemptId && !action) {
       const [attempt] = await sql`
-        SELECT a.*, e.questions_json, e.marking_scheme_json, e.settings_json, e.total_marks, e.session_id, e.title
+        SELECT a.*, e.questions_json, e.marking_scheme_json, e.settings_json,
+               e.total_marks, e.session_id, e.title, e.metadata_json
         FROM attempts a JOIN exams e ON e.id = a.exam_id
         WHERE a.id = ${attemptId} AND a.user_id = ${userId}
       `
@@ -165,7 +169,7 @@ exports.handler = async (event) => {
       return respond(200, attempt)
     }
 
-    // PATCH ?id=X — autosave answers
+    // PATCH ?id=X — autosave
     if (method === 'PATCH' && attemptId && !action) {
       const body = JSON.parse(event.body || '{}')
       await sql`
@@ -184,8 +188,7 @@ exports.handler = async (event) => {
         UPDATE attempts SET
           answers_json = ${JSON.stringify(body.answers_json || {})}::jsonb,
           status = 'submitted', submitted_at = NOW(), updated_at = NOW()
-        WHERE id = ${attemptId} AND user_id = ${userId}
-        RETURNING *
+        WHERE id = ${attemptId} AND user_id = ${userId} RETURNING *
       `
       if (!attempt) return respond(404, { error: 'Attempt not found' })
       return respond(200, attempt)
@@ -209,8 +212,6 @@ exports.handler = async (event) => {
         MARKING_PROMPT(questions, answers, markingSchemes, settings),
         { temperature: 0.2, maxTokens: 12000 }
       )
-
-      // Recalculate scores from steps — don't trust AI totals
       const markingData = recalculateScores(rawMarking, questions)
 
       const totalScore = markingData.total_score
@@ -254,11 +255,11 @@ exports.handler = async (event) => {
       return respond(200, { ...updated, feedback_json: feedbackJson })
     }
 
-    // POST ?id=X&action=appeal — appeal a question's marking
+    // POST ?id=X&action=appeal
     if (method === 'POST' && attemptId && action === 'appeal') {
       const body = JSON.parse(event.body || '{}')
       const { questionId, reason } = body
-      if (!questionId || !reason) return respond(400, { error: 'questionId and reason required' })
+      if (!questionId || !reason?.trim()) return respond(400, { error: 'questionId and reason required' })
 
       const [attempt] = await sql`
         SELECT a.*, e.questions_json, e.marking_scheme_json
@@ -275,12 +276,15 @@ exports.handler = async (event) => {
       const originalQFeedback = feedback.questions?.find(q => q.id === questionId)
       const scheme = markingSchemes.find(s => s.id === questionId)
 
-      if (!question || !originalQFeedback) return respond(404, { error: 'Question not found in attempt' })
+      if (!question || !originalQFeedback) return respond(404, { error: 'Question not found' })
+
+      // Pass the ORIGINAL student answer (stored at marking time) — not what they claim now
+      const originalAnswer = originalQFeedback.studentAnswer || attempt.answers_json?.[questionId] || ''
 
       const appealResult = await callGemini(
         APPEAL_PROMPT(
           question.question,
-          originalQFeedback.studentAnswer || '',
+          originalAnswer,
           originalQFeedback,
           reason,
           scheme?.marking_scheme || ''
@@ -288,29 +292,25 @@ exports.handler = async (event) => {
         { temperature: 0.1, maxTokens: 4000 }
       )
 
-      // Update the question's feedback in the attempt
+      const question_max = question.marks || 0
+      const newMarks = Math.min(Math.max(0, appealResult.new_scored_marks ?? originalQFeedback.scoredMarks ?? 0), question_max)
+
       const updatedQuestions = feedback.questions.map(q => {
         if (q.id !== questionId) return q
-        const newMarks = Math.min(
-          Math.max(0, appealResult.new_scored_marks ?? q.scoredMarks ?? 0),
-          question.marks || 0
-        )
         return {
           ...q,
           scoredMarks: newMarks,
-          isCorrect: newMarks >= (question.marks || 1),
+          isCorrect: newMarks >= question_max,
           appealResult: {
             upheld: appealResult.appeal_upheld,
             response: appealResult.examiner_response,
-            previousMarks: q.scoredMarks ?? 0,
+            previousMarks: originalQFeedback.scoredMarks ?? 0,
             newMarks,
           },
           feedback: {
             ...q.feedback,
-            steps: appealResult.updated_steps || q.feedback?.steps || [],
-            overall: appealResult.appeal_upheld
-              ? `[Appeal upheld] ${appealResult.examiner_response}`
-              : `[Appeal rejected] ${appealResult.examiner_response}`,
+            steps: appealResult.updated_steps?.length ? appealResult.updated_steps : q.feedback?.steps || [],
+            overall: `[Appeal ${appealResult.appeal_upheld ? 'upheld' : 'rejected'}] ${appealResult.examiner_response}`,
           },
         }
       })
@@ -318,7 +318,6 @@ exports.handler = async (event) => {
       const newTotal = updatedQuestions.reduce((sum, q) => sum + (q.scoredMarks || 0), 0)
       const maxScore = questions.reduce((sum, q) => sum + (q.marks || 0), 0)
       const newPct = maxScore > 0 ? Math.round(newTotal / maxScore * 1000) / 10 : 0
-
       const newFeedback = { ...feedback, questions: updatedQuestions, total_score: newTotal }
 
       await sql`
@@ -331,12 +330,12 @@ exports.handler = async (event) => {
       return respond(200, {
         appeal_upheld: appealResult.appeal_upheld,
         examiner_response: appealResult.examiner_response,
-        new_scored_marks: appealResult.new_scored_marks,
+        new_scored_marks: newMarks,
         updated_feedback: newFeedback,
       })
     }
 
-    // DELETE ?id=X — delete attempt
+    // DELETE ?id=X
     if (method === 'DELETE' && attemptId) {
       await sql`DELETE FROM analytics WHERE attempt_id = ${attemptId}`
       await sql`DELETE FROM attempts WHERE id = ${attemptId} AND user_id = ${userId}`

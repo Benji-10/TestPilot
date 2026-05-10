@@ -312,7 +312,9 @@ function ExamAccordion({ exam, attempts, expanded, onToggle, onNewAttempt, onOpe
 function AttemptRow({ attempt, number, onClick, onDelete }) {
   const pct = attempt.percentage || 0
   const grade = gradeLabel(pct)
-  const statusLabel = attempt.status === 'marked' ? `${Math.round(pct)}% · ${grade.label}` : attempt.status === 'submitted' ? 'Submitted' : 'In progress'
+  const statusLabel = attempt.status === 'marked'
+    ? `${Math.round(pct)}% · ${grade.label}`
+    : attempt.status === 'submitted' ? 'Submitted' : 'In progress'
 
   return (
     <div
@@ -320,7 +322,7 @@ function AttemptRow({ attempt, number, onClick, onDelete }) {
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '8px 10px', background: 'var(--surface-2)',
         borderRadius: 'var(--radius)', border: '1px solid var(--border)',
-        cursor: 'pointer', transition: 'border-color 0.1s'
+        cursor: 'pointer', transition: 'border-color 0.1s',
       }}
       onClick={onClick}
       onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-active)'}
@@ -329,11 +331,18 @@ function AttemptRow({ attempt, number, onClick, onDelete }) {
       <span style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 60 }}>Attempt {number}</span>
       <span style={{ fontSize: 11, color: grade.color, flex: 1 }}>{statusLabel}</span>
       <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{formatDate(attempt.created_at)}</span>
-      <button className="btn btn-ghost btn-icon" onClick={onDelete}
+      <button
+        className="btn btn-ghost btn-icon"
+        title="Delete attempt"
         style={{ padding: 3, color: 'var(--ink-3)', flexShrink: 0 }}
-        title="Delete attempt">
+        onClick={e => {
+          e.stopPropagation()   // ← prevent row click from firing
+          onDelete(e)
+        }}
+      >
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path d="M1.5 3h8M4 3V2h3v1M4.5 5v3M6.5 5v3M2 3l.5 6.5a.75.75 0 00.75.75h5.5a.75.75 0 00.75-.75L10 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+          <path d="M1.5 3h8M4 3V2h3v1M4.5 5v3M6.5 5v3M2 3l.5 6.5a.75.75 0 00.75.75h5.5a.75.75 0 00.75-.75L10 3"
+            stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
         </svg>
       </button>
       <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ color: 'var(--ink-3)', flexShrink: 0 }}>

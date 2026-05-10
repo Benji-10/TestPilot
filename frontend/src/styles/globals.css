@@ -573,3 +573,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-color: var(--border);
   border-top-color: var(--accent);
 }
+
+/* ── KaTeX copy fix ────────────────────────────────────────────────
+   KaTeX renders both a visual MathML tree and a hidden aria-hidden
+   screen-reader span. When you copy, both get included → duplication.
+   Hide the aria span from selection so only the visual text copies. */
+.katex .katex-html { user-select: text; }
+.katex .katex-mathml {
+  user-select: none;
+  position: absolute;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 0;
+  border: 0;
+  height: 1px;
+  width: 1px;
+  overflow: hidden;
+}
+
+/* Ensure all rendered math blocks are selectable */
+.katex-display { user-select: text; }
