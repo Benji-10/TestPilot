@@ -80,14 +80,29 @@ export default function SessionView({ session }) {
   }
 
   async function openAttempt(exam, attempt) {
-    // If attempt is already marked, go straight to review
-    if (attempt.status === 'marked' && attempt.feedback_json) {
-      setActiveAttempt({ ...attempt, exam })
-      setActiveView('review')
-    } else {
-      setActiveAttempt({ ...attempt, exam })
-      setActiveView('exam')
+    try {
+      // Always fetch full attempt data (includes answers_json and feedback_json)
+      const full = await apiClient.getAttempt(attempt.id)
+      const fullAttempt = { ...full, exam }
+      setActiveAttempt(fullAttempt)
+      if (full.status === 'marked') {
+        setActiveView('review')
+      } else {
+        setActiveView('exam')
+      }
+    } catch (e) {
+      toast.error('Failed to load attempt')
     }
+  }
+
+  async function handleDeleteAttempt(examId, attemptId, e) {
+    e.stopPropagation()
+    if (!confirm('Delete this attempt?')) return
+    try {
+      await apiClient.deleteAttempt(attemptId)
+      setExamAttempts(prev => ({ ...prev, [examId]: (prev[examId] || []).filter(a => a.id !== attemptId) }))
+      toast.success('Attempt deleted')
+    } catch (e) { toast.error('Failed to delete attempt') }
   }
 
   async function newAttempt(exam) {
@@ -207,6 +222,7 @@ export default function SessionView({ session }) {
                   onNewAttempt={() => newAttempt(exam)}
                   onOpenAttempt={(attempt) => openAttempt(exam, attempt)}
                   onDelete={() => handleDeleteExam(exam.id)}
+                  onDeleteAttempt={(attemptId, e) => handleDeleteAttempt(exam.id, attemptId, e)}
                 />
               ))}
             </div>
@@ -219,7 +235,7 @@ export default function SessionView({ session }) {
   )
 }
 
-function ExamAccordion({ exam, attempts, expanded, onToggle, onNewAttempt, onOpenAttempt, onDelete }) {
+function ExamAccordion({ exam, attempts, expanded, onToggle, onNewAttempt, onOpenAttempt, onDelete, onDeleteAttempt }) {
   const topics = exam.metadata_json?.topics || []
   const bestAttempt = attempts?.filter(a => a.status === 'marked').sort((a, b) => (b.percentage || 0) - (a.percentage || 0))[0]
 
@@ -293,7 +309,7 @@ function ExamAccordion({ exam, attempts, expanded, onToggle, onNewAttempt, onOpe
   )
 }
 
-function AttemptRow({ attempt, number, onClick }) {
+function AttemptRow({ attempt, number, onClick, onDelete }) {
   const pct = attempt.percentage || 0
   const grade = gradeLabel(pct)
   const statusLabel = attempt.status === 'marked' ? `${Math.round(pct)}% · ${grade.label}` : attempt.status === 'submitted' ? 'Submitted' : 'In progress'
@@ -313,7 +329,14 @@ function AttemptRow({ attempt, number, onClick }) {
       <span style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 60 }}>Attempt {number}</span>
       <span style={{ fontSize: 11, color: grade.color, flex: 1 }}>{statusLabel}</span>
       <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{formatDate(attempt.created_at)}</span>
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ color: 'var(--ink-3)' }}>
+      <button className="btn btn-ghost btn-icon" onClick={onDelete}
+        style={{ padding: 3, color: 'var(--ink-3)', flexShrink: 0 }}
+        title="Delete attempt">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M1.5 3h8M4 3V2h3v1M4.5 5v3M6.5 5v3M2 3l.5 6.5a.75.75 0 00.75.75h5.5a.75.75 0 00.75-.75L10 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+        </svg>
+      </button>
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ color: 'var(--ink-3)', flexShrink: 0 }}>
         <path d="M3 2l4 3.5L3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
       </svg>
     </div>

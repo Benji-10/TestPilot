@@ -24,6 +24,14 @@ ${instructions || 'None.'}
 - Total marks: ${settings.examLength?.type === 'marks' ? settings.examLength.value : 'distribute sensibly across questions'}
 - Allow alternative methods: ${settings.allowAlternatives ? 'yes' : 'no'}
 
+## LaTeX formatting rules — STRICT:
+- ALL mathematical expressions must be wrapped in delimiters: $inline$ or $$display$$
+- Prose sentences must NOT be passed raw to LaTeX. Write: "The function $f$ is bounded above" NOT "\\text{The function} f \\text{is bounded above}"
+- In the "latex" field of open_book_items: use $...$ delimiters around every math expression within prose. Example: "If $S \\subset \\mathbb{R}$ is non-empty and bounded above, then $\\sup S \\in \\mathbb{R}$."
+- In question text: mix prose and $math$ naturally. Example: "Show that $\\sup(-S) = -\\inf(S)$."
+- In marking_scheme and model_answer: use $$...$$ for displayed equations, $...$ for inline.
+- NEVER output bare LaTeX commands in prose context without delimiters.
+
 ## Critical rules:
 1. ONLY use definitions, theorems, notation, and vocabulary that appear in the study material. Do not introduce concepts not covered.
 2. Use LaTeX for ALL mathematics. Inline: $x^2$. Display: $$\\sup_D f$$

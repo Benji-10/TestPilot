@@ -1,16 +1,10 @@
 const BASE = '/.netlify/functions'
 
 async function getAuthHeaders() {
-  const identity = window.netlifyIdentity
-  const user = identity?.currentUser()
+  const user = window.netlifyIdentity?.currentUser()
   if (!user) return {}
-  try {
-    const token = await user.jwt()
-    return { Authorization: `Bearer ${token}` }
-  } catch (e) {
-    console.error('Failed to get JWT:', e)
-    return {}
-  }
+  try { return { Authorization: `Bearer ${await user.jwt()}` } }
+  catch { return {} }
 }
 
 async function request(path, options = {}) {
@@ -27,17 +21,14 @@ async function request(path, options = {}) {
 }
 
 export const apiClient = {
-  // Auth
   syncUser: (data) => request('/auth-sync', { method: 'POST', body: JSON.stringify(data) }),
 
-  // Sessions
   getSessions: () => request('/sessions'),
   createSession: (data) => request('/sessions', { method: 'POST', body: JSON.stringify(data) }),
   updateSession: (id, data) => request(`/sessions?id=${id}&action=update`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSession: (id) => request(`/sessions?id=${id}`, { method: 'DELETE' }),
   duplicateSession: (id) => request(`/sessions?id=${id}&action=duplicate`, { method: 'POST' }),
 
-  // Files
   getFiles: (sessionId) => request(`/sessions?id=${sessionId}&action=files`),
   deleteFile: (sessionId, fileId) => request(`/files?sessionId=${sessionId}&fileId=${fileId}`, { method: 'DELETE' }),
   getExams: (sessionId) => request(`/sessions?id=${sessionId}&action=exams`),
@@ -49,25 +40,21 @@ export const apiClient = {
     formData.append('file', file)
     formData.append('sessionId', sessionId)
     const res = await fetch(`${BASE}/upload`, { method: 'POST', headers: authHeaders, body: formData })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Upload failed' }))
-      throw new Error(err.error || 'Upload failed')
-    }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Upload failed') }
     return res.json()
   },
 
-  // Exams
   generateExam: (data) => request('/exams-generate', { method: 'POST', body: JSON.stringify(data) }),
   deleteExam: (examId) => request(`/sessions?examId=${examId}`, { method: 'DELETE' }),
 
-  // Attempts
   getAttempts: (examId) => request(`/attempts?examId=${examId}`),
+  getAttempt: (attemptId) => request(`/attempts?id=${attemptId}`),
   createAttempt: (examId) => request(`/attempts?examId=${examId}`, { method: 'POST' }),
   saveAttempt: (attemptId, data) => request(`/attempts?id=${attemptId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitAttempt: (attemptId, data) => request(`/attempts?id=${attemptId}&action=submit`, { method: 'POST', body: JSON.stringify(data) }),
   markAttempt: (attemptId) => request(`/attempts?id=${attemptId}&action=mark`, { method: 'POST' }),
   deleteAttempt: (attemptId) => request(`/attempts?id=${attemptId}`, { method: 'DELETE' }),
+  appealMark: (attemptId, questionId, reason) => request(`/attempts?id=${attemptId}&action=appeal`, { method: 'POST', body: JSON.stringify({ questionId, reason }) }),
 
-  // Analytics
   getGlobalAnalytics: () => request('/analytics'),
 }

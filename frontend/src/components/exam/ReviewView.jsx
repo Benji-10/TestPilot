@@ -124,7 +124,12 @@ export default function ReviewView() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {questions.map((q, i) => (
-              <QuestionCard key={q.id || i} question={q} index={i} mode="review" />
+              <QuestionCard
+                key={q.id || i}
+                question={{ ...q, attemptId: attempt?.id }}
+                index={i}
+                mode="review"
+              />
             ))}
           </div>
         </div>

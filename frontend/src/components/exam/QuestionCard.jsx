@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { apiClient } from '../../lib/api.js'
 import { renderLatex, renderMath } from '../../lib/latex.js'
 import MathEditor from '../editor/MathEditor.jsx'
 
@@ -11,6 +12,10 @@ const LatexBlock = ({ children, style }) => (
 
 export default function QuestionCard({ question, index, answer, onChange, mode = 'exam' }) {
   const [showScheme, setShowScheme] = useState(false)
+  const [showAppeal, setShowAppeal] = useState(false)
+  const [appealText, setAppealText] = useState('')
+  const [appealing, setAppealing] = useState(false)
+  const [appealResult, setAppealResult] = useState(question.appealResult || null)
 
   const scored = question.scoredMarks ?? 0
   const total = question.marks ?? 0
@@ -153,6 +158,74 @@ export default function QuestionCard({ question, index, answer, onChange, mode =
                   <LatexBlock style={{ fontSize: 13 }}>{alt}</LatexBlock>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Appeal */}
+          {question.id && (
+            <div>
+              {appealResult && (
+                <div style={{
+                  background: appealResult.upheld ? 'var(--success-dim)' : 'var(--danger-dim)',
+                  border: `1px solid ${appealResult.upheld ? 'rgba(74,222,128,0.2)' : 'rgba(255,95,95,0.2)'}`,
+                  borderRadius: 'var(--radius)', padding: '8px 12px', marginBottom: 8,
+                  fontSize: 12, color: appealResult.upheld ? 'var(--success)' : 'var(--danger)'
+                }}>
+                  <strong>{appealResult.upheld ? '✓ Appeal upheld' : '✗ Appeal rejected'}</strong>
+                  {appealResult.previousMarks !== undefined && appealResult.upheld && (
+                    <span style={{ marginLeft: 8 }}>
+                      {appealResult.previousMarks} → {appealResult.newMarks} marks
+                    </span>
+                  )}
+                  <div style={{ marginTop: 4, color: 'inherit', opacity: 0.85 }}>{appealResult.response}</div>
+                </div>
+              )}
+              {!showAppeal ? (
+                <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 0' }}
+                  onClick={() => setShowAppeal(true)}>
+                  Appeal this mark
+                </button>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <textarea
+                    className="input"
+                    value={appealText}
+                    onChange={e => setAppealText(e.target.value)}
+                    placeholder="Explain why you think the marking is wrong. Be specific — reference the question wording and your answer."
+                    style={{ minHeight: 80, fontSize: 12, lineHeight: 1.6 }}
+                  />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      className="btn btn-primary"
+                      disabled={appealing || !appealText.trim()}
+                      onClick={async () => {
+                        if (!appealText.trim()) return
+                        setAppealing(true)
+                        try {
+                          const result = await apiClient.appealMark(question.attemptId, question.id, appealText)
+                          setAppealResult({
+                            upheld: result.appeal_upheld,
+                            response: result.examiner_response,
+                            previousMarks: question.scoredMarks,
+                            newMarks: result.new_scored_marks,
+                          })
+                          setShowAppeal(false)
+                          if (question.onAppealComplete) question.onAppealComplete(result)
+                        } catch (e) {
+                          alert('Appeal failed: ' + e.message)
+                        } finally { setAppealing(false) }
+                      }}
+                      style={{ fontSize: 11 }}
+                    >
+                      {appealing ? 'Submitting appeal…' : 'Submit appeal'}
+                    </button>
+                    <button className="btn btn-ghost" style={{ fontSize: 11 }}
+                      onClick={() => { setShowAppeal(false); setAppealText('') }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
