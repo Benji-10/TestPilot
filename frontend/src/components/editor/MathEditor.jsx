@@ -127,59 +127,25 @@ const QUICK_INSERTS = [
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Is the caret at position `pos` inside a $...$ or $$...$$ region?
- * Returns 'display', 'inline', or null.
+ * Is the caret at `pos` inside a math region?
+ * Simple approach: count unescaped $ signs before pos.
+ * Odd count = inside inline math. Also checks for $$ pairs.
  */
 function mathContext(str, pos) {
-  // Walk from start, tracking open/close $ pairs
-  let i = 0
-  let inDisplay = false
-  let inInline = false
-  let regionStart = -1
-
-  while (i < str.length) {
-    if (str[i] === '$' && str[i + 1] === '$') {
-      if (!inDisplay) { inDisplay = true; regionStart = i; i += 2 }
-      else { inDisplay = false; i += 2 }
-      continue
-    }
-    if (str[i] === '$' && !inDisplay) {
-      if (!inInline) { inInline = true; regionStart = i; i++ }
-      else { inInline = false; i++ }
-      continue
-    }
-    i++
+  try {
+    const before = str.slice(0, pos)
+    // Count $$ pairs
+    const displayMatches = before.match(/\$\$/g) || []
+    // If odd number of $$ openers, we're in display math
+    if (displayMatches.length % 2 === 1) return 'display'
+    // Remove all $$ to count single $
+    const withoutDisplay = before.replace(/\$\$/g, '')
+    const inlineCount = (withoutDisplay.match(/\$/g) || []).length
+    if (inlineCount % 2 === 1) return 'inline'
+    return null
+  } catch {
+    return null
   }
-  // Check if pos is within an open region (unterminated = still inside)
-  // Recompute properly
-  let j = 0
-  const regions = []
-  while (j < str.length) {
-    if (str[j] === '$' && str[j + 1] === '$') {
-      // find closing $$
-      const end = str.indexOf('$$', j + 2)
-      if (end !== -1) { regions.push({ start: j, end: end + 2, type: 'display' }); j = end + 2 }
-      else { regions.push({ start: j, end: str.length, type: 'display' }); break }
-    } else if (str[j] === '$') {
-      let k = j + 1
-      while (k < str.length && str[k] !== '$' && str[k] !== '\n') k++
-      if (k < str.length && str[k] === '$') {
-        regions.push({ start: j, end: k + 1, type: 'inline' })
-        j = k + 1
-      } else {
-        // Unclosed $ — treat rest as inline context
-        regions.push({ start: j, end: str.length, type: 'inline' })
-        break
-      }
-    } else {
-      j++
-    }
-  }
-
-  for (const r of regions) {
-    if (pos > r.start && pos <= r.end) return r.type
-  }
-  return null
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -206,6 +172,7 @@ export default function MathEditor({ value, onChange, placeholder }) {
   function handleChange(e) { emit(e.target.value) }
 
   function handleKeyDown(e) {
+    try {
     const ta = taRef.current
     const pos = ta.selectionStart
     const val = raw
@@ -281,6 +248,9 @@ export default function MathEditor({ value, onChange, placeholder }) {
         }
       }
     }
+  }
+
+    } catch (err) { console.error("MathEditor keydown error:", err) }
   }
 
   function insertSnippet(latex, cursor) {
