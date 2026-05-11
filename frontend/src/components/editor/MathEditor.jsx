@@ -187,17 +187,11 @@ export default function MathEditor({ value, onChange, placeholder }) {
       return
     }
 
-    // $ — pair like a bracket, cursor inside
+    // $ — insert matching $, cursor between them
     if (e.key === '$') {
       e.preventDefault()
-      const ctx = mathContext(val, pos)
-      if (ctx) {
-        emit(before + '$' + after)
-        setCaret(pos + 1)
-      } else {
-        emit(before + '$$' + after)
-        setCaret(pos + 1)
-      }
+      emit(before + '$$' + after)
+      setCaret(pos + 1)
       return
     }
 
@@ -220,10 +214,8 @@ export default function MathEditor({ value, onChange, placeholder }) {
       }
     }
 
-    // Space — expand keyword shortcuts, only inside $ math context
+    // Space — expand keyword shortcuts when word matches
     if (e.key === ' ') {
-      const ctx = mathContext(val, pos)
-      if (!ctx) return
       const word = before.match(/([a-zA-Z_]+)$/)
       if (word) {
         const shortcut = SHORTCUTS[word[1]]
