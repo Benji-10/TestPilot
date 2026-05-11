@@ -172,14 +172,14 @@ export default function MathEditor({ value, onChange, placeholder }) {
   function handleChange(e) { emit(e.target.value) }
 
   function handleKeyDown(e) {
-    try {
     const ta = taRef.current
+    if (!ta) return
     const pos = ta.selectionStart
     const val = raw
     const before = val.slice(0, pos)
     const after = val.slice(pos)
 
-    // ── Tab → 2 spaces ──────────────────────────────────────────────
+    // Tab → 2 spaces
     if (e.key === 'Tab') {
       e.preventDefault()
       emit(before + '  ' + after)
@@ -187,23 +187,21 @@ export default function MathEditor({ value, onChange, placeholder }) {
       return
     }
 
-    // ── $ pairs like brackets ────────────────────────────────────────
+    // $ — pair like a bracket, cursor inside
     if (e.key === '$') {
       e.preventDefault()
       const ctx = mathContext(val, pos)
       if (ctx) {
-        // Already inside math — just insert a closing $ to exit
         emit(before + '$' + after)
         setCaret(pos + 1)
       } else {
-        // Start new $...$ pair, cursor inside
         emit(before + '$$' + after)
         setCaret(pos + 1)
       }
       return
     }
 
-    // ── Auto-close { } only ─────────────────────────────────────────
+    // { — auto-close
     if (e.key === '{') {
       e.preventDefault()
       emit(before + '{}' + after)
@@ -211,9 +209,9 @@ export default function MathEditor({ value, onChange, placeholder }) {
       return
     }
 
-    // ── Smart backspace: delete full \command ───────────────────────
+    // Backspace — delete full \command as a token
     if (e.key === 'Backspace' && pos > 0) {
-      const cmd = before.match(/\\[a-zA-Z]+$/)
+      const cmd = before.match(/\[a-zA-Z]+$/)
       if (cmd) {
         e.preventDefault()
         emit(before.slice(0, -cmd[0].length) + after)
@@ -222,35 +220,24 @@ export default function MathEditor({ value, onChange, placeholder }) {
       }
     }
 
-    // ── Word expansion on Space — only inside $ context ─────────────
+    // Space — expand keyword shortcuts, only inside $ math context
     if (e.key === ' ') {
       const ctx = mathContext(val, pos)
-      if (!ctx) return // Not in math — don't intercept
-
-      const word = before.match(/\b([a-zA-Z_]+)$/)
+      if (!ctx) return
+      const word = before.match(/([a-zA-Z_]+)$/)
       if (word) {
-        const key = word[1]
-        const shortcut = SHORTCUTS[key]
+        const shortcut = SHORTCUTS[word[1]]
         if (shortcut) {
           e.preventDefault()
           const { latex, cursor } = shortcut
-          const replacement = before.slice(0, -key.length) + latex
-          const insideBrace = cursor !== null // cursor inside {} means no trailing space
-          const full = insideBrace
-            ? replacement + after
-            : replacement + ' ' + after
+          const insideBrace = cursor !== null
+          const full = before.slice(0, -word[1].length) + latex + (insideBrace ? '' : ' ') + after
           emit(full)
-          const newPos = insideBrace
-            ? (pos - key.length) + cursor
-            : (pos - key.length) + latex.length + 1
-          setCaret(newPos)
+          setCaret(insideBrace ? pos - word[1].length + cursor : pos - word[1].length + latex.length + 1)
           return
         }
       }
     }
-  }
-
-    } catch (err) { console.error("MathEditor keydown error:", err) }
   }
 
   function insertSnippet(latex, cursor) {
