@@ -1,6 +1,7 @@
 import katex from 'katex'
 
 function katexStr(expr, display) {
+  if (!expr || !expr.trim()) return ''
   try {
     return katex.renderToString(expr.trim(), {
       displayMode: display,
@@ -21,14 +22,11 @@ function escHtml(s) {
 }
 
 function isProse(s) {
+  // Two or more plain English words (3+ letters, not preceded by backslash)
   const words = s.match(/(?<!\\)\b[a-z]{3,}\b/g)
   return words && words.length >= 2
 }
 
-/**
- * Tokenise a mixed prose+math string, wrapping prose words in \text{}.
- * Handles: \commands, ^, _, {}, math symbols, and plain English words.
- */
 function proseToLatex(str) {
   const tokens = []
   let i = 0
@@ -38,9 +36,9 @@ function proseToLatex(str) {
     if (!buf) return
     const v = buf.trim()
     if (!v) { buf = ''; return }
-    if (/^[A-Za-z]$/.test(v)) tokens.push(v)           // single letter = math var
-    else if (/^[,.\s;:]+$/.test(v)) tokens.push(v)     // punctuation as-is
-    else tokens.push(`\\text{${buf}}`)                  // prose → \text{}
+    if (/^[A-Za-z]$/.test(v)) tokens.push(v)
+    else if (/^[,.\s;:()\-]+$/.test(v)) tokens.push(v)
+    else tokens.push(`\\text{${buf}}`)
     buf = ''
   }
 
@@ -50,12 +48,15 @@ function proseToLatex(str) {
       let cmd = '\\'
       i++
       while (i < str.length && /[a-zA-Z]/.test(str[i])) cmd += str[i++]
-      // consume optional braced argument(s)
-      while (str[i] === '{') {
+      // consume braced arguments
+      while (i < str.length && str[i] === '{') {
         let depth = 0, arg = ''
         while (i < str.length) {
           if (str[i] === '{') depth++
-          else if (str[i] === '}') { depth--; if (depth === 0) { arg += '}'; i++; break } }
+          else if (str[i] === '}') {
+            depth--
+            if (depth === 0) { arg += '}'; i++; break }
+          }
           arg += str[i++]
         }
         cmd += arg
@@ -75,25 +76,74 @@ function proseToLatex(str) {
 }
 
 /**
- * Universal renderer. Accepts any string — with or without $ delimiters.
- * - With $...$ / $$...$$: parses them explicitly
- * - With bare \commands but prose words: tokenises and wraps prose in \text{}
- * - With bare \commands and no prose: renders as math directly
- * - Plain text: returns escaped HTML
+ * Tokenise a string with $ delimiters into segments.
+ * Returns array of {type: 'text'|'inline'|'display', content: string}
+ */
+function tokenise(s) {
+  const segments = []
+  let i = 0
+
+  while (i < s.length) {
+    // Display math $$...$$
+    if (s[i] === '$' && s[i + 1] === '$') {
+      const start = i + 2
+      const end = s.indexOf('$$', start)
+      if (end !== -1) {
+        segments.push({ type: 'display', content: s.slice(start, end) })
+        i = end + 2
+        continue
+      }
+    }
+    // Inline math $...$
+    if (s[i] === '$') {
+      const start = i + 1
+      // Find closing $, not $$
+      let j = start
+      while (j < s.length) {
+        if (s[j] === '$') {
+          if (s[j + 1] === '$') { j += 2; continue } // skip $$
+          break
+        }
+        if (s[j] === '\n') break // don't span newlines
+        j++
+      }
+      if (j < s.length && s[j] === '$' && j > start) {
+        segments.push({ type: 'inline', content: s.slice(start, j) })
+        i = j + 1
+        continue
+      }
+    }
+    // Plain text — accumulate until next $
+    let j = i
+    while (j < s.length && s[j] !== '$') j++
+    if (j > i) segments.push({ type: 'text', content: s.slice(i, j) })
+    i = j
+  }
+  return segments
+}
+
+/**
+ * Main renderer. Handles:
+ * 1. Strings with $...$ / $$...$$ delimiters — parsed properly via tokeniser
+ * 2. Bare \commands with prose — auto-wraps prose in \text{}
+ * 3. Bare \commands without prose — renders as inline math
+ * 4. Plain text — escaped HTML
  */
 export function renderLatex(text) {
   if (!text) return ''
   const s = String(text)
 
-  // Has explicit $ delimiters → parse them, render rest as HTML
   if (s.includes('$')) {
-    return s
-      .replace(/\$\$([\s\S]+?)\$\$/g, (_, e) => katexStr(e, true))
-      .replace(/\$([^$\n]+?)\$/g, (_, e) => katexStr(e, false))
-      .replace(/\n/g, '<br/>')
+    const segments = tokenise(s)
+    return segments.map(seg => {
+      if (seg.type === 'display') return katexStr(seg.content, true)
+      if (seg.type === 'inline') return katexStr(seg.content, false)
+      // Plain text segment — convert newlines to <br>
+      return escHtml(seg.content).replace(/\n/g, '<br/>')
+    }).join('')
   }
 
-  // Has LaTeX commands
+  // Bare LaTeX commands
   if (/\\[a-zA-Z]/.test(s)) {
     return s.split('\n').map(line => {
       const t = line.trim()
@@ -103,21 +153,17 @@ export function renderLatex(text) {
     }).join('')
   }
 
-  // Plain text
   return escHtml(s).replace(/\n/g, '<br/>')
 }
 
 /**
- * Render a known-math field (no $ delimiters needed).
- * If it contains prose, auto-wraps in \text{}.
+ * Render a known-math expression (no $ needed).
  */
 export function renderMath(expr, display = false) {
   if (!expr) return ''
   const s = String(expr).trim()
   if (!s) return ''
-  const stripped = s.replace(/^\$\$?|\$\$?$/g, '').trim()
-  const target = stripped || s
   if (s.includes('$')) return renderLatex(s)
-  const converted = isProse(target) ? proseToLatex(target) : target
+  const converted = isProse(s) ? proseToLatex(s) : s
   return katexStr(converted, display)
 }
