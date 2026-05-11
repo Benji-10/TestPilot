@@ -179,7 +179,6 @@ export default function MathEditor({ value, onChange, placeholder }) {
     const before = val.slice(0, pos)
     const after = val.slice(pos)
 
-    // Tab → 2 spaces
     if (e.key === 'Tab') {
       e.preventDefault()
       emit(before + '  ' + after)
@@ -187,7 +186,6 @@ export default function MathEditor({ value, onChange, placeholder }) {
       return
     }
 
-    // $ — insert matching $, cursor between them
     if (e.key === '$') {
       e.preventDefault()
       emit(before + '$$' + after)
@@ -195,7 +193,6 @@ export default function MathEditor({ value, onChange, placeholder }) {
       return
     }
 
-    // { — auto-close
     if (e.key === '{') {
       e.preventDefault()
       emit(before + '{}' + after)
@@ -203,36 +200,24 @@ export default function MathEditor({ value, onChange, placeholder }) {
       return
     }
 
-    // Backspace — delete full \command as a token
-    if (e.key === 'Backspace' && pos > 0) {
-      const cmd = before.match(/\[a-zA-Z]+$/)
-      if (cmd) {
-        e.preventDefault()
-        emit(before.slice(0, -cmd[0].length) + after)
-        setCaret(pos - cmd[0].length)
-        return
-      }
-    }
-
-    // Space — expand keyword shortcuts when word matches
     if (e.key === ' ') {
-      const word = before.match(/([a-zA-Z_]+)$/)
-      if (word) {
-        const shortcut = SHORTCUTS[word[1]]
+      const wordMatch = before.match(/[a-zA-Z_]+$/)
+      if (wordMatch) {
+        const shortcut = SHORTCUTS[wordMatch[0]]
         if (shortcut) {
           e.preventDefault()
           const { latex, cursor } = shortcut
           const insideBrace = cursor !== null
-          const full = before.slice(0, -word[1].length) + latex + (insideBrace ? '' : ' ') + after
+          const full = before.slice(0, -wordMatch[0].length) + latex + (insideBrace ? '' : ' ') + after
           emit(full)
-          setCaret(insideBrace ? pos - word[1].length + cursor : pos - word[1].length + latex.length + 1)
+          setCaret(insideBrace ? pos - wordMatch[0].length + cursor : pos - wordMatch[0].length + latex.length + 1)
           return
         }
       }
     }
   }
 
-  function insertSnippet(latex, cursor) {
+    function insertSnippet(latex, cursor) {
     const ta = taRef.current
     if (!ta) return
     const pos = ta.selectionStart ?? raw.length
