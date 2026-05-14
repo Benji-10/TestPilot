@@ -80,46 +80,54 @@ function proseToLatex(str) {
  * Returns array of {type: 'text'|'inline'|'display', content: string}
  */
 function tokenise(s) {
-  const segments = []
-  let i = 0
-
+  const segments = [];
+  let i = 0;
   while (i < s.length) {
     // Display math $$...$$
-    if (s[i] === '$' && s[i + 1] === '$') {
-      const start = i + 2
-      const end = s.indexOf('$$', start)
+    if (s[i] === '$' && s[i+1] === '$') {
+      const start = i + 2;
+      const end = s.indexOf('$$', start);
       if (end !== -1) {
-        segments.push({ type: 'display', content: s.slice(start, end) })
-        i = end + 2
-        continue
+        segments.push({ type: 'display', content: s.slice(start, end) });
+        i = end + 2;
+        continue;
+      } else {
+        // unmatched '$$' -> treat as plain text
+        segments.push({ type: 'text', content: '$$' });
+        i += 2;
+        continue;
       }
     }
     // Inline math $...$
     if (s[i] === '$') {
-      const start = i + 1
-      // Find closing $, not $$
-      let j = start
+      const start = i + 1;
+      let j = start;
       while (j < s.length) {
         if (s[j] === '$') {
-          if (s[j + 1] === '$') { j += 2; continue } // skip $$
-          break
+          if (s[j+1] === '$') { j += 2; continue; }
+          break;
         }
-        if (s[j] === '\n') break // don't span newlines
-        j++
+        if (s[j] === '\n') break;
+        j++;
       }
       if (j < s.length && s[j] === '$' && j > start) {
-        segments.push({ type: 'inline', content: s.slice(start, j) })
-        i = j + 1
-        continue
+        segments.push({ type: 'inline', content: s.slice(start, j) });
+        i = j + 1;
+        continue;
+      } else {
+        // unmatched single '$' -> treat as plain text
+        segments.push({ type: 'text', content: '$' });
+        i++;
+        continue;
       }
     }
-    // Plain text — accumulate until next $
-    let j = i
-    while (j < s.length && s[j] !== '$') j++
-    if (j > i) segments.push({ type: 'text', content: s.slice(i, j) })
-    i = j
+    // Plain text (no '$' at current position)
+    let j = i;
+    while (j < s.length && s[j] !== '$') j++;
+    if (j > i) segments.push({ type: 'text', content: s.slice(i, j) });
+    i = j;
   }
-  return segments
+  return segments;
 }
 
 /**
