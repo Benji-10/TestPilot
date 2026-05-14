@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { renderLatex } from '../../lib/latex.js'
 
 const SHORTCUTS = {
@@ -68,7 +68,6 @@ const SHORTCUTS = {
   CC:         '\\mathbb{C}',
 }
 
-// cursor position after inserting latex (index where caret goes)
 const CURSOR_POS = {
   '\\frac{}{}': 6,
   '\\sqrt{}': 6,
@@ -95,6 +94,37 @@ const QUICK_INSERTS = [
 
 export default function MathEditor({ value = '', onChange, placeholder }) {
   const taRef = useRef(null)
+  const [preview, setPreview] = useState('')
+  const [isCrashing, setIsCrashing] = useState(false)
+  const [lastProcessed, setLastProcessed] = useState('')
+
+  // Safe rendering with crash detection (timeout)
+  useEffect(() => {
+    if (!value.trim()) {
+      setPreview('')
+      setIsCrashing(false)
+      return
+    }
+
+    // Timeout to detect long-running renderLatex (will only fire if it's slow but not frozen)
+    const timer = setTimeout(() => {
+      console.warn("LONG RENDER DETECTED: renderLatex is taking > 500ms.")
+      setIsCrashing(true)
+    }, 500)
+
+    try {
+      const html = renderLatex(value)
+      setPreview(html)
+      setIsCrashing(false)
+      setLastProcessed(value)
+      clearTimeout(timer)
+    } catch (err) {
+      console.error("RENDER ERROR:", err)
+      setPreview(`<span style="color:red">Error: ${err.message}</span>`)
+      setIsCrashing(false)
+      clearTimeout(timer)
+    }
+  }, [value])
 
   function insert(text, caretOffset) {
     const ta = taRef.current
@@ -160,8 +190,6 @@ export default function MathEditor({ value = '', onChange, placeholder }) {
     }
   }
 
-  const preview = value.trim() ? renderLatex(value) : ''
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
@@ -212,6 +240,7 @@ export default function MathEditor({ value = '', onChange, placeholder }) {
             resize: 'vertical',
             width: '100%',
             paddingRight: 44,
+            border: isCrashing ? '2px solid red' : '1px solid var(--border)'
           }}
           spellCheck={false}
         />
@@ -222,6 +251,14 @@ export default function MathEditor({ value = '', onChange, placeholder }) {
         }}>
           LaTeX
         </span>
+        {isCrashing && (
+          <div style={{
+            position: 'absolute', bottom: -20, left: 0,
+            color: 'red', fontSize: '10px', fontWeight: 'bold'
+          }}>
+            LOCKED: The string "{value}" is freezing the renderer.
+          </div>
+        )}
       </div>
 
       {value.trim() && (
@@ -234,7 +271,7 @@ export default function MathEditor({ value = '', onChange, placeholder }) {
           </div>
           <div
             dangerouslySetInnerHTML={{ __html: preview }}
-            style={{ lineHeight: 2, color: 'var(--ink-1)', overflowX: 'auto' }}
+            style={{ lineHeight: 2, color: 'var(--ink-1)', overflowX: 'auto', opacity: isCrashing ? 0.3 : 1 }}
           />
         </div>
       )}
