@@ -1,12 +1,13 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useId } from 'react'
 import { renderLatex } from '../../lib/latex.js'
 
-// ── Shortcuts (only fire outside \text{} and outside prose context) ──────────
+// ── Shortcuts ─────────────────────────────────────────────────────────────────
 const SHORTCUTS = {
   frac: '\\frac{}{}', sqrt: '\\sqrt{}', vec: '\\vec{}',
   hat: '\\hat{}', bar: '\\bar{}', text: '\\text{}',
-  sin: '\\sin ', cos: '\\cos ', tan: '\\tan ', ln: '\\ln ', log: '\\log ',
-  exp: '\\exp ', max: '\\max ', min: '\\min ', sup: '\\sup ', inf: '\\inf ',
+  sin: '\\sin ', cos: '\\cos ', tan: '\\tan ', cot: '\\cot ',
+  ln: '\\ln ', log: '\\log ', exp: '\\exp ',
+  max: '\\max ', min: '\\min ', sup: '\\sup ', inf: '\\inf ',
   lim: '\\lim ', sum: '\\sum ', prod: '\\prod ', int: '\\int ',
   partial: '\\partial ', nabla: '\\nabla ', infty: '\\infty ',
   pi: '\\pi ', alpha: '\\alpha ', beta: '\\beta ', gamma: '\\gamma ',
@@ -31,29 +32,22 @@ const CURSOR_AFTER = {
   '\\mathbb{Q}': 11, '\\mathbb{C}': 11,
 }
 
-/** Is the caret inside a \text{...} group? */
 function insideTextGroup(str, pos) {
-  // Walk backwards from pos looking for unclosed \text{
   let depth = 0
   let i = pos - 1
   while (i >= 0) {
     if (str[i] === '}') depth++
     else if (str[i] === '{') {
       if (depth === 0) {
-        // Check if preceded by \text
         const before = str.slice(0, i)
         if (/\\text\s*$/.test(before)) return true
-        // any other \cmd{ — not text
-      } else {
-        depth--
-      }
+      } else depth--
     }
     i--
   }
   return false
 }
 
-/** Is the caret inside a $ math region? */
 function insideMath(str, pos) {
   const before = str.slice(0, pos)
   const dd = (before.match(/\$\$/g) || []).length
@@ -62,84 +56,232 @@ function insideMath(str, pos) {
   return ((cleaned.match(/\$/g) || []).length) % 2 === 1
 }
 
-/** Split raw text into blocks by newline */
-function toBlocks(raw) {
-  return raw.split('\n').map((line, i) => ({ id: i, text: line }))
-}
+// ── Live preview renderer ─────────────────────────────────────────────────────
+// Strategy: for the block being edited, find which $...$ region the caret is in.
+// Render all OTHER $...$ regions normally. The ACTIVE $...$ region shows as raw text.
+// Plain text segments always render as-is (no syntax to break).
 
-/** Join blocks back to raw text */
-function fromBlocks(blocks) {
-  return blocks.map(b => b.text).join('\n')
-}
-
-// ── Single block component ────────────────────────────────────────────────────
-function Block({ text, focused, onFocus, onChange, onKeyDown, inputRef, index }) {
-  const preview = text.trim() ? renderLatex(text) : ''
-
-  if (!focused) {
-    // Rendered mode — click anywhere to edit
-    return (
-      <div
-        onClick={() => onFocus(index)}
-        style={{
-          minHeight: 32,
-          padding: '3px 0',
-          lineHeight: 1.9,
-          cursor: 'text',
-          color: text.trim() ? 'var(--ink-1)' : 'var(--ink-3)',
-          fontSize: 14,
-          fontFamily: text.trim() ? 'inherit' : 'JetBrains Mono, monospace',
-          userSelect: 'text',
-        }}
-      >
-        {text.trim() ? (
-          <span dangerouslySetInnerHTML={{ __html: preview }} />
-        ) : (
-          <span style={{ opacity: 0.3, fontSize: 13 }}>New line…</span>
-        )}
-      </div>
-    )
+function renderBlockWithCursor(text, caretPos) {
+  // Tokenise into segments
+  const segs = []
+  let i = 0
+  while (i < text.length) {
+    // $$...$$
+    if (text[i] === '$' && text[i + 1] === '$') {
+      const start = i + 2
+      const end = text.indexOf('$$', start)
+      if (end !== -1) {
+        segs.push({ type: 'display', content: text.slice(start, end), from: i, to: end + 2 })
+        i = end + 2
+        continue
+      }
+      // unclosed $$ — rest is active math
+      segs.push({ type: 'display_open', content: text.slice(start), from: i, to: text.length })
+      break
+    }
+    // $...$
+    if (text[i] === '$') {
+      const start = i + 1
+      let j = start
+      while (j < text.length) {
+        if (text[j] === '$') break
+        if (text[j] === '\n') break
+        j++
+      }
+      if (j < text.length && text[j] === '$' && j > start) {
+        segs.push({ type: 'inline', content: text.slice(start, j), from: i, to: j + 1 })
+        i = j + 1
+        continue
+      }
+      // unclosed $
+      segs.push({ type: 'inline_open', content: text.slice(start), from: i, to: text.length })
+      break
+    }
+    // plain text
+    let j = i
+    while (j < text.length && text[j] !== '$') j++
+    segs.push({ type: 'text', content: text.slice(i, j), from: i, to: j })
+    i = j
   }
 
-  // Edit mode
+  // Find which segment contains the caret
+  const activeIdx = segs.findIndex(s => caretPos > s.from && caretPos <= s.to)
+
+  return segs.map((seg, idx) => {
+    const isActive = idx === activeIdx
+
+    if (seg.type === 'text') {
+      // Plain text always renders as text (no LaTeX to break)
+      return seg.content
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+
+    if (isActive) {
+      // Active math region — show raw with a cursor marker
+      const delim = seg.type === 'display' || seg.type === 'display_open' ? '$$' : '$'
+      const raw = seg.content
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      return `<span style="font-family:JetBrains Mono,monospace;font-size:12px;color:var(--ink-2);background:var(--accent-glow);border-radius:3px;padding:1px 3px">${delim}${raw}${delim}</span>`
+    }
+
+    // Inactive math — render properly
+    if (seg.type === 'display' || seg.type === 'display_open') {
+      return katexRender(seg.content, true)
+    }
+    return katexRender(seg.content, false)
+  }).join('')
+}
+
+function katexRender(expr, display) {
+  if (!expr.trim()) return ''
+  try {
+    const katex = window._katex
+    if (!katex) return expr
+    return katex.renderToString(expr, {
+      displayMode: display,
+      throwOnError: false,
+      errorColor: 'var(--danger)',
+    })
+  } catch { return expr }
+}
+
+// Expose katex globally so renderBlockWithCursor can use it without an import cycle
+import katex from 'katex'
+if (typeof window !== 'undefined') window._katex = katex
+
+// ── Block component ───────────────────────────────────────────────────────────
+function Block({ id, text, focused, caretPos, onFocus, onChange, onKeyDown, onCaretChange, textareaRef }) {
+
+  function handleClick(e) {
+    if (!focused) {
+      // Don't prevent default — let browser place cursor naturally
+      onFocus()
+    }
+    // If already focused, do nothing — let browser handle caret placement
+  }
+
+  function handleMouseDown(e) {
+    if (!focused) {
+      // We want the click to focus the textarea at the right position.
+      // Don't call e.preventDefault() here — that would prevent cursor placement.
+      // Just schedule focus after the click resolves.
+      e.preventDefault()
+      onFocus()
+    }
+    // If focused, let default happen so user can reposition cursor by clicking
+  }
+
+  function handleSelectionChange() {
+    if (textareaRef.current && focused) {
+      onCaretChange(textareaRef.current.selectionStart)
+    }
+  }
+
+  const previewHtml = focused && text.includes('$')
+    ? renderBlockWithCursor(text, caretPos ?? 0)
+    : text.trim()
+      ? renderLatex(text)
+      : null
+
   return (
-    <textarea
-      ref={inputRef}
-      value={text}
-      onChange={e => onChange(e.target.value)}
-      onKeyDown={onKeyDown}
-      rows={1}
-      style={{
-        width: '100%',
-        background: 'transparent',
-        border: 'none',
-        outline: 'none',
-        resize: 'none',
-        fontFamily: 'JetBrains Mono, monospace',
-        fontSize: 13,
-        lineHeight: 1.9,
-        color: 'var(--ink-1)',
-        padding: '3px 0',
-        overflow: 'hidden',
-        minHeight: 32,
-      }}
-      onInput={e => {
-        // Auto-resize
-        e.target.style.height = 'auto'
-        e.target.style.height = e.target.scrollHeight + 'px'
-      }}
-    />
+    <div style={{ position: 'relative', minHeight: 32 }}>
+      {/* Always-present textarea, visible only when focused */}
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={e => { onChange(e.target.value); onCaretChange(e.target.selectionStart) }}
+        onKeyDown={onKeyDown}
+        onKeyUp={handleSelectionChange}
+        onClick={handleSelectionChange}
+        onSelect={handleSelectionChange}
+        rows={1}
+        style={{
+          position: focused ? 'relative' : 'absolute',
+          opacity: focused ? 1 : 0,
+          pointerEvents: focused ? 'auto' : 'none',
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          outline: 'none',
+          resize: 'none',
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 13,
+          lineHeight: 1.9,
+          color: 'var(--ink-1)',
+          padding: '3px 0',
+          overflow: 'hidden',
+          minHeight: 32,
+          zIndex: focused ? 2 : 0,
+        }}
+        onInput={e => {
+          e.target.style.height = 'auto'
+          e.target.style.height = e.target.scrollHeight + 'px'
+        }}
+      />
+
+      {/* Rendered overlay — shown when not focused, or as live preview when focused with $ */}
+      {!focused && (
+        <div
+          onMouseDown={handleMouseDown}
+          style={{
+            minHeight: 32,
+            padding: '3px 0',
+            lineHeight: 1.9,
+            cursor: 'text',
+            fontSize: 14,
+            userSelect: 'text',
+            color: previewHtml ? 'var(--ink-1)' : 'var(--ink-3)',
+          }}
+        >
+          {previewHtml ? (
+            <span dangerouslySetInnerHTML={{ __html: previewHtml }} />
+          ) : (
+            <span style={{ opacity: 0.25, fontSize: 13, fontFamily: 'JetBrains Mono, monospace' }}>
+              {text || ''}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Live preview strip when focused and has math */}
+      {focused && text.includes('$') && previewHtml && (
+        <div
+          style={{
+            marginTop: 2,
+            padding: '4px 8px',
+            background: 'var(--surface-2)',
+            borderRadius: 'var(--radius)',
+            borderLeft: '2px solid var(--accent)',
+            fontSize: 13,
+            lineHeight: 1.9,
+            userSelect: 'none',
+            pointerEvents: 'none',
+          }}
+          dangerouslySetInnerHTML={{ __html: previewHtml }}
+        />
+      )}
+    </div>
   )
 }
 
 // ── Main editor ───────────────────────────────────────────────────────────────
+function toBlocks(raw) {
+  if (!raw) return [{ id: 0, text: '' }]
+  return raw.split('\n').map((line, i) => ({ id: i, text: line }))
+}
+
+function fromBlocks(blocks) {
+  return blocks.map(b => b.text).join('\n')
+}
+
 export default function MathEditor({ value = '', onChange, placeholder }) {
   const [blocks, setBlocks] = useState(() => toBlocks(value))
-  const [focusedBlock, setFocusedBlock] = useState(null)
-  const inputRefs = useRef({})
-
-  // Sync value → blocks when parent changes value externally
+  const [focusedIdx, setFocusedIdx] = useState(null)
+  const [caretPos, setCaretPos] = useState(0)
+  const textareaRefs = useRef([])
   const lastEmitted = useRef(value)
+  const editorRef = useRef(null)
+
   useEffect(() => {
     if (value !== lastEmitted.current) {
       setBlocks(toBlocks(value))
@@ -158,54 +300,49 @@ export default function MathEditor({ value = '', onChange, placeholder }) {
     emit(next)
   }
 
-  function focusBlock(index, caretPos) {
-    setFocusedBlock(index)
+  function focusAt(index, pos) {
+    setFocusedIdx(index)
     requestAnimationFrame(() => {
-      const ta = inputRefs.current[index]
-      if (ta) {
-        ta.style.height = 'auto'
-        ta.style.height = ta.scrollHeight + 'px'
-        ta.focus()
-        if (caretPos !== undefined) {
-          ta.selectionStart = ta.selectionEnd = caretPos
-        }
+      const ta = textareaRefs.current[index]
+      if (!ta) return
+      ta.style.height = 'auto'
+      ta.style.height = ta.scrollHeight + 'px'
+      ta.focus()
+      if (pos !== undefined) {
+        ta.selectionStart = ta.selectionEnd = pos
+        setCaretPos(pos)
       }
     })
   }
 
   function handleKeyDown(e, index) {
-    const ta = inputRefs.current[index]
+    const ta = textareaRefs.current[index]
     if (!ta) return
     const pos = ta.selectionStart
     const text = blocks[index].text
     const before = text.slice(0, pos)
     const after = text.slice(pos)
 
-    // Enter → split block or create new block
     if (e.key === 'Enter') {
       e.preventDefault()
-      const newBlock = { id: Date.now(), text: after }
+      const newId = Date.now() + index
       const updated = [
         ...blocks.slice(0, index),
         { ...blocks[index], text: before },
-        newBlock,
+        { id: newId, text: after },
         ...blocks.slice(index + 1),
       ]
       setBlocks(updated)
       emit(updated)
-      // Focus new block
-      const newIndex = index + 1
+      const ni = index + 1
+      setFocusedIdx(ni)
       requestAnimationFrame(() => {
-        setFocusedBlock(newIndex)
-        requestAnimationFrame(() => {
-          const nextTa = inputRefs.current[newIndex]
-          if (nextTa) { nextTa.focus(); nextTa.selectionStart = nextTa.selectionEnd = 0 }
-        })
+        const next = textareaRefs.current[ni]
+        if (next) { next.focus(); next.selectionStart = next.selectionEnd = 0; setCaretPos(0) }
       })
       return
     }
 
-    // Backspace at start of block → merge with previous
     if (e.key === 'Backspace' && pos === 0 && index > 0) {
       e.preventDefault()
       const prevText = blocks[index - 1].text
@@ -217,139 +354,116 @@ export default function MathEditor({ value = '', onChange, placeholder }) {
       ]
       setBlocks(updated)
       emit(updated)
-      focusBlock(index - 1, prevText.length)
+      focusAt(index - 1, prevText.length)
       return
     }
 
-    // Arrow up → go to previous block
     if (e.key === 'ArrowUp' && index > 0) {
-      e.preventDefault()
-      focusBlock(index - 1)
-      return
+      e.preventDefault(); focusAt(index - 1); return
     }
-
-    // Arrow down → go to next block
     if (e.key === 'ArrowDown' && index < blocks.length - 1) {
-      e.preventDefault()
-      focusBlock(index + 1)
-      return
+      e.preventDefault(); focusAt(index + 1); return
     }
 
-    // $ → insert matching $, cursor between
     if (e.key === '$') {
       e.preventDefault()
       const next = before + '$$' + after
       updateBlock(index, next)
-      requestAnimationFrame(() => {
-        if (ta) ta.selectionStart = ta.selectionEnd = pos + 1
-      })
+      const np = pos + 1
+      requestAnimationFrame(() => { if (ta) { ta.selectionStart = ta.selectionEnd = np; setCaretPos(np) } })
       return
     }
 
-    // { → auto-close
     if (e.key === '{') {
       e.preventDefault()
       const next = before + '{}' + after
       updateBlock(index, next)
-      requestAnimationFrame(() => {
-        if (ta) ta.selectionStart = ta.selectionEnd = pos + 1
-      })
+      const np = pos + 1
+      requestAnimationFrame(() => { if (ta) { ta.selectionStart = ta.selectionEnd = np; setCaretPos(np) } })
       return
     }
 
-    // Tab → 2 spaces
     if (e.key === 'Tab') {
       e.preventDefault()
       updateBlock(index, before + '  ' + after)
-      requestAnimationFrame(() => {
-        if (ta) ta.selectionStart = ta.selectionEnd = pos + 2
-      })
+      const np = pos + 2
+      requestAnimationFrame(() => { if (ta) { ta.selectionStart = ta.selectionEnd = np; setCaretPos(np) } })
       return
     }
 
-    // Space → keyword expansion, only when inside math AND not inside \text{}
     if (e.key === ' ') {
-      const inMath = insideMath(text, pos)
-      const inText = insideTextGroup(text, pos)
-      if (inMath && !inText) {
+      if (insideMath(text, pos) && !insideTextGroup(text, pos)) {
         const m = before.match(/[a-zA-Z_]+$/)
-        if (m) {
+        if (m && SHORTCUTS[m[0]]) {
+          e.preventDefault()
           const latex = SHORTCUTS[m[0]]
-          if (latex) {
-            e.preventDefault()
-            const replaced = before.slice(0, -m[0].length)
-            const next = replaced + latex + after
-            updateBlock(index, next)
-            const cp = CURSOR_AFTER[latex]
-            const newCaret = replaced.length + (cp ?? latex.length)
-            requestAnimationFrame(() => {
-              if (ta) ta.selectionStart = ta.selectionEnd = newCaret
-            })
-            return
-          }
+          const replaced = before.slice(0, -m[0].length)
+          const next = replaced + latex + after
+          updateBlock(index, next)
+          const cp = CURSOR_AFTER[latex]
+          const np = replaced.length + (cp ?? latex.length)
+          requestAnimationFrame(() => { if (ta) { ta.selectionStart = ta.selectionEnd = np; setCaretPos(np) } })
+          return
         }
       }
     }
   }
 
-  // Click outside → blur all
+  // Click outside → blur
   useEffect(() => {
-    function handleClick(e) {
-      const editorEl = document.getElementById('math-editor-root')
-      if (editorEl && !editorEl.contains(e.target)) {
-        setFocusedBlock(null)
+    function down(e) {
+      if (editorRef.current && !editorRef.current.contains(e.target)) {
+        setFocusedIdx(null)
       }
     }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('mousedown', down)
+    return () => document.removeEventListener('mousedown', down)
   }, [])
 
   const isEmpty = blocks.every(b => !b.text.trim())
 
   return (
     <div
-      id="math-editor-root"
-      style={{
-        position: 'relative',
-        minHeight: 80,
-        padding: '8px 0',
-        cursor: 'text',
-      }}
-      onClick={() => {
-        if (focusedBlock === null) focusBlock(blocks.length - 1)
+      ref={editorRef}
+      style={{ position: 'relative', minHeight: 80, cursor: 'text' }}
+      onClick={e => {
+        // Only focus last block if clicking the container itself (not a block)
+        if (e.target === editorRef.current && focusedIdx === null) {
+          focusAt(blocks.length - 1)
+        }
       }}
     >
-      {/* Placeholder */}
-      {isEmpty && focusedBlock === null && (
+      {isEmpty && focusedIdx === null && (
         <div style={{
-          position: 'absolute', top: 8, left: 0, pointerEvents: 'none',
-          color: 'var(--ink-3)', fontSize: 13, fontFamily: 'JetBrains Mono, monospace',
-          lineHeight: 1.9,
+          position: 'absolute', top: 3, left: 0, pointerEvents: 'none',
+          color: 'var(--ink-3)', fontSize: 13,
+          fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.9,
         }}>
-          {placeholder || 'Write your answer. Click to edit. Maths goes inside $…$ — type keywords then Space inside $ to expand.'}
+          {placeholder || 'Write your answer. Maths inside $…$ — inside $, type keywords + Space to expand (frac, sqrt, lim, leq, veps…)'}
         </div>
       )}
 
       {blocks.map((block, index) => (
         <Block
           key={block.id}
-          index={index}
+          id={block.id}
           text={block.text}
-          focused={focusedBlock === index}
-          onFocus={(i) => focusBlock(i)}
-          onChange={(text) => updateBlock(index, text)}
-          onKeyDown={(e) => handleKeyDown(e, index)}
-          inputRef={el => { inputRefs.current[index] = el }}
+          focused={focusedIdx === index}
+          caretPos={focusedIdx === index ? caretPos : 0}
+          onFocus={() => focusAt(index)}
+          onChange={text => updateBlock(index, text)}
+          onKeyDown={e => handleKeyDown(e, index)}
+          onCaretChange={p => setCaretPos(p)}
+          textareaRef={el => { textareaRefs.current[index] = el }}
         />
       ))}
 
-      {/* Subtle editing indicator */}
-      {focusedBlock !== null && (
+      {focusedIdx !== null && (
         <div style={{
-          fontSize: 9, color: 'var(--ink-3)', marginTop: 4,
+          fontSize: 9, color: 'var(--ink-3)', marginTop: 6,
           textTransform: 'uppercase', letterSpacing: '0.06em',
         }}>
-          Inside $…$: keywords expand on Space (frac, sqrt, sup, lim, leq, veps, RR…) · Enter for new line
+          Inside $…$: keywords expand on Space · Enter = new line · ↑↓ navigate
         </div>
       )}
     </div>
